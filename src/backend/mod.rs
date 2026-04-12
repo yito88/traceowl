@@ -10,6 +10,14 @@ pub struct RequestMatch {
     pub db_kind: String,
     /// Collection/index name
     pub collection: String,
+    /// The original request path (used to re-find the backend after forwarding)
+    pub path: String,
+}
+
+impl RequestMatch {
+    pub fn path(&self) -> &str {
+        &self.path
+    }
 }
 
 /// Parsed request metadata for event emission.

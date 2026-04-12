@@ -24,6 +24,7 @@ impl BackendHandler for QdrantHandler {
             Some(RequestMatch {
                 db_kind: "qdrant".to_string(),
                 collection: parts[2].to_string(),
+                path: path.to_string(),
             })
         } else {
             None
@@ -173,6 +174,7 @@ mod tests {
         let matched = RequestMatch {
             db_kind: "qdrant".to_string(),
             collection: "test".to_string(),
+            path: "/collections/test/points/query".to_string(),
         };
         let body = br#"{"query": [0.1, 0.2, 0.3], "limit": 5}"#;
         let meta = handler.parse_request(&matched, body);
@@ -187,6 +189,7 @@ mod tests {
         let matched = RequestMatch {
             db_kind: "qdrant".to_string(),
             collection: "test".to_string(),
+            path: "/collections/test/points/query".to_string(),
         };
         let body = br#"{"query": {"nearest": {"id": 123}}, "limit": 5}"#;
         let meta = handler.parse_request(&matched, body);

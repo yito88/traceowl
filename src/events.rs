@@ -83,6 +83,7 @@ pub fn now_ms() -> u64 {
 impl RequestEvent {
     pub fn new(
         request_id: String,
+        timestamp_ms: u64,
         sampled: bool,
         unsupported_shape: bool,
         db: DbInfo,
@@ -92,7 +93,7 @@ impl RequestEvent {
             schema_version: SCHEMA_VERSION,
             event_type: "request",
             request_id,
-            timestamp_ms: now_ms(),
+            timestamp_ms,
             sampled,
             unsupported_shape,
             db,
