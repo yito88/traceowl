@@ -1,0 +1,29 @@
+# traceowl-proxy configuration
+
+# Address to listen on
+listen_addr = "0.0.0.0:6333"
+
+# Upstream VectorDB URL (Qdrant in this example)
+upstream_base_url = "http://localhost:6334"
+
+# Fraction of requests to sample (0.0 to 1.0)
+# Errors/5xx/timeouts are always sampled regardless of this setting
+sampling_rate = 0.1
+
+# Maximum number of events in the queue before dropping
+queue_capacity = 8192
+
+# Directory for JSONL event files
+output_dir = "./events"
+
+# Rotate event file when it reaches this size in bytes (default: 50MB)
+rotation_max_bytes = 52428800
+
+# Flush buffered events after this interval in milliseconds
+flush_interval_ms = 1000
+
+# Flush buffered events when buffer reaches this count
+flush_max_events = 500
+
+# Timeout for upstream requests in milliseconds
+upstream_request_timeout_ms = 10000
