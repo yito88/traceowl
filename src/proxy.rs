@@ -33,7 +33,6 @@ pub async fn forward_handler(
 ) -> Response {
     let path = uri.path();
 
-    // Try to match a backend
     let matched = state
         .backends
         .iter()
@@ -42,7 +41,6 @@ pub async fn forward_handler(
     match matched {
         Some(request_match) => handle_instrumented(state, request_match, uri, headers, body).await,
         None => {
-            // No backend matched — forward transparently without events
             forward_raw(
                 &state.client,
                 &state.config.upstream_base_url,
@@ -63,7 +61,7 @@ async fn handle_instrumented(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    // Forward request upstream first — defer all other work
+    // Capture start time, then forward immediately
     let start_ms = now_ms();
     let start = Instant::now();
     let upstream_url = format!("{}{}", state.config.upstream_base_url, uri);
@@ -78,8 +76,8 @@ async fn handle_instrumented(
 
     let latency_ms = start.elapsed().as_millis() as u64;
 
-    // Build the HTTP response and determine if we need to emit events
-    let (http_response, is_error, http_status, error_kind, resp_body_for_parse) = match result {
+    // Build HTTP response and capture outcome
+    let (http_response, is_error, http_status, error_kind, resp_body_copy) = match result {
         Ok(upstream_resp) => {
             let http_status = upstream_resp.status().as_u16();
             let resp_headers = upstream_resp.headers().clone();
@@ -140,7 +138,7 @@ async fn handle_instrumented(
         }
     };
 
-    // Decide sampling after the round-trip — avoid all overhead on unsampled happy paths
+    // Inline: sampling decision, parsing, event building, non-blocking queue send
     let request_id = Uuid::now_v7();
     let sampled = is_error || sampling::is_sampled(&request_id, state.config.sampling_rate);
 
@@ -169,7 +167,7 @@ async fn handle_instrumented(
         );
         state.event_queue.send(Event::Request(req_event));
 
-        let hits = match resp_body_for_parse {
+        let hits = match resp_body_copy {
             Some(ref resp_body) => {
                 backend
                     .parse_response(&request_match, http_status, resp_body)

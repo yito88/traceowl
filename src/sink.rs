@@ -23,14 +23,12 @@ fn chrono_like_now() -> String {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
     let secs = dur.as_secs();
-    // Simple ISO8601-ish timestamp without pulling in chrono
     let days = secs / 86400;
     let rem = secs % 86400;
     let hours = rem / 3600;
     let minutes = (rem % 3600) / 60;
     let seconds = rem % 60;
 
-    // Calculate date from days since epoch (1970-01-01)
     let (year, month, day) = days_to_date(days);
     format!(
         "{:04}-{:02}-{:02}T{:02}{:02}{:02}Z",
@@ -39,7 +37,6 @@ fn chrono_like_now() -> String {
 }
 
 fn days_to_date(days_since_epoch: u64) -> (u64, u64, u64) {
-    // Civil date from days since 1970-01-01 (algorithm from Howard Hinnant)
     let z = days_since_epoch as i64 + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64;
@@ -86,25 +83,10 @@ pub async fn writer_task(mut rx: mpsc::Receiver<Event>, config: Config, cancel: 
                             let (new_size, flushed) = flush_buffer(&mut buffer, &mut current_file, current_size);
                             current_size = new_size;
                             total_flushed += flushed;
-                            if current_size >= config.rotation_max_bytes {
-                                current_path = new_file_path(&config.output_dir);
-                                match open_file(&current_path) {
-                                    Ok(f) => {
-                                        tracing::info!(path = %current_path.display(), "rotated event file");
-                                        current_file = f;
-                                        current_size = 0;
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(error = %e, "failed to open rotated event file");
-                                    }
-                                }
-                            }
+                            maybe_rotate(&config, &mut current_path, &mut current_file, &mut current_size);
                         }
                     }
-                    None => {
-                        // Channel closed
-                        break;
-                    }
+                    None => break,
                 }
             }
             _ = flush_interval.tick() => {
@@ -112,24 +94,11 @@ pub async fn writer_task(mut rx: mpsc::Receiver<Event>, config: Config, cancel: 
                     let (new_size, flushed) = flush_buffer(&mut buffer, &mut current_file, current_size);
                     current_size = new_size;
                     total_flushed += flushed;
-                    if current_size >= config.rotation_max_bytes {
-                        current_path = new_file_path(&config.output_dir);
-                        match open_file(&current_path) {
-                            Ok(f) => {
-                                tracing::info!(path = %current_path.display(), "rotated event file");
-                                current_file = f;
-                                current_size = 0;
-                            }
-                            Err(e) => {
-                                tracing::error!(error = %e, "failed to open rotated event file");
-                            }
-                        }
-                    }
+                    maybe_rotate(&config, &mut current_path, &mut current_file, &mut current_size);
                 }
             }
             _ = cancel.cancelled() => {
                 tracing::info!("writer task shutting down, draining queue");
-                // Drain remaining events
                 while let Ok(ev) = rx.try_recv() {
                     match serde_json::to_string(&ev) {
                         Ok(line) => buffer.push(line),
@@ -146,6 +115,27 @@ pub async fn writer_task(mut rx: mpsc::Receiver<Event>, config: Config, cancel: 
     }
 
     tracing::info!(total_flushed, "writer task stopped");
+}
+
+fn maybe_rotate(
+    config: &Config,
+    current_path: &mut PathBuf,
+    current_file: &mut File,
+    current_size: &mut u64,
+) {
+    if *current_size >= config.rotation_max_bytes {
+        *current_path = new_file_path(&config.output_dir);
+        match open_file(current_path) {
+            Ok(f) => {
+                tracing::info!(path = %current_path.display(), "rotated event file");
+                *current_file = f;
+                *current_size = 0;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "failed to open rotated event file");
+            }
+        }
+    }
 }
 
 fn flush_buffer(buffer: &mut Vec<String>, file: &mut File, current_size: u64) -> (u64, u64) {
