@@ -1,0 +1,24 @@
+name: Qdrant Integration Tests
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  qdrant-integration:
+    name: Qdrant Integration
+    runs-on: ubuntu-latest
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6334:6333
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --test qdrant_integration -- --include-ignored
+        env:
+          QDRANT_URL: http://localhost:6334

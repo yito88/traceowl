@@ -112,8 +112,9 @@ fn parse_qdrant_hits(body: &[u8]) -> Vec<HitInfo> {
     let mut hits = Vec::new();
 
     if let Ok(json) = parsed {
-        if let Some(points) = json["result"]
+        if let Some(points) = json["result"]["points"]
             .as_array()
+            .or_else(|| json["result"].as_array())
             .or_else(|| json["points"].as_array())
         {
             for (rank, point) in points.iter().enumerate() {
