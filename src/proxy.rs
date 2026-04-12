@@ -63,12 +63,8 @@ async fn handle_instrumented(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let request_id = Uuid::now_v7();
-    let request_id_str = request_id.to_string();
-    let sampled = sampling::is_sampled(&request_id, state.config.sampling_rate);
-    let start_timestamp_ms = now_ms();
-
-    // Forward request upstream — no parsing yet
+    // Forward request upstream first — defer all other work
+    let start_ms = now_ms();
     let start = Instant::now();
     let upstream_url = format!("{}{}", state.config.upstream_base_url, uri);
 
@@ -82,8 +78,8 @@ async fn handle_instrumented(
 
     let latency_ms = start.elapsed().as_millis() as u64;
 
-    // Determine if we need to emit events (sampled, or force-sample on error)
-    let (http_response, should_emit, http_status, error_kind, resp_body_for_parse) = match result {
+    // Build the HTTP response and determine if we need to emit events
+    let (http_response, is_error, http_status, error_kind, resp_body_for_parse) = match result {
         Ok(upstream_resp) => {
             let http_status = upstream_resp.status().as_u16();
             let resp_headers = upstream_resp.headers().clone();
@@ -91,7 +87,6 @@ async fn handle_instrumented(
             match upstream_resp.bytes().await {
                 Ok(resp_body) => {
                     let is_5xx = http_status >= 500;
-                    let should_emit = sampled || is_5xx;
                     let error_kind = if is_5xx {
                         Some(ErrorKind::Upstream5xx)
                     } else {
@@ -108,7 +103,7 @@ async fn handle_instrumented(
 
                     (
                         http_response,
-                        should_emit,
+                        is_5xx,
                         http_status,
                         error_kind,
                         Some(resp_body),
@@ -118,7 +113,7 @@ async fn handle_instrumented(
                     tracing::error!(error = %e, "failed to read upstream response body");
                     (
                         StatusCode::BAD_GATEWAY.into_response(),
-                        true, // always emit on error
+                        true,
                         502,
                         Some(ErrorKind::DecodeError),
                         None,
@@ -137,7 +132,7 @@ async fn handle_instrumented(
             tracing::error!(error = %e, url = %upstream_url, "upstream request failed");
             (
                 status.into_response(),
-                true, // always emit on error
+                true,
                 status.as_u16(),
                 Some(error_kind),
                 None,
@@ -145,8 +140,13 @@ async fn handle_instrumented(
         }
     };
 
-    // Only parse and enqueue events if needed
-    if should_emit {
+    // Decide sampling after the round-trip — avoid all overhead on unsampled happy paths
+    let request_id = Uuid::now_v7();
+    let sampled = is_error || sampling::is_sampled(&request_id, state.config.sampling_rate);
+
+    if sampled {
+        let request_id_str = request_id.to_string();
+
         let backend = state
             .backends
             .iter()
@@ -161,18 +161,11 @@ async fn handle_instrumented(
 
         let req_event = RequestEvent::new(
             request_id_str.clone(),
-            start_timestamp_ms,
+            start_ms,
             true,
             request_meta.unsupported_shape,
-            DbInfo {
-                kind: db_info.kind.clone(),
-                collection: db_info.collection.clone(),
-            },
-            QueryInfo {
-                text: request_meta.query.text,
-                hash: request_meta.query.hash,
-                top_k: request_meta.query.top_k,
-            },
+            db_info,
+            request_meta.query,
         );
         state.event_queue.send(Event::Request(req_event));
 
