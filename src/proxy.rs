@@ -77,7 +77,7 @@ async fn handle_instrumented(
         .send()
         .await;
 
-    let latency_ms = start.elapsed().as_millis() as u64;
+    let latency_ms = u64::max(1, start.elapsed().as_millis() as u64);
 
     // Build HTTP response and capture outcome
     let (http_response, is_error, http_status, error_kind, resp_body_copy) = match result {
