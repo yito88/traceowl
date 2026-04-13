@@ -6,6 +6,18 @@ use anyhow::{Context, Result};
 
 use crate::events::Event;
 
+// NOTE: all events from all files are accumulated in memory before processing.
+// For very large inputs this could OOM. A streaming pipeline would be needed
+// to fix this properly, which is out of scope for v1.
+pub fn read_events_from_files(paths: &[std::path::PathBuf]) -> Result<Vec<Event>> {
+    let mut all_events = Vec::new();
+    for path in paths {
+        let events = read_events(path)?;
+        all_events.extend(events);
+    }
+    Ok(all_events)
+}
+
 pub fn read_events(path: &Path) -> Result<Vec<Event>> {
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let reader = BufReader::new(file);
@@ -79,6 +91,24 @@ mod tests {
 
         let events = read_events(&path).unwrap();
         assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn test_read_events_from_multiple_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path1 = dir.path().join("events1.jsonl");
+        let path2 = dir.path().join("events2.jsonl");
+
+        let mut f1 = File::create(&path1).unwrap();
+        writeln!(f1, "{}", request_line("req1")).unwrap();
+        writeln!(f1, "{}", response_line("req1")).unwrap();
+
+        let mut f2 = File::create(&path2).unwrap();
+        writeln!(f2, "{}", request_line("req2")).unwrap();
+        writeln!(f2, "{}", response_line("req2")).unwrap();
+
+        let events = read_events_from_files(&[path1, path2]).unwrap();
+        assert_eq!(events.len(), 4);
     }
 
     #[test]

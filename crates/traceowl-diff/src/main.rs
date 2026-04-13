@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 use traceowl_diff::basic_diff;
 use traceowl_diff::cli::Args;
-use traceowl_diff::input;
+use traceowl_diff::input::read_events_from_files;
 use traceowl_diff::join;
 use traceowl_diff::normalize::{self, NormalizedRetrieval};
 use traceowl_diff::output;
@@ -18,9 +18,9 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Read events from both files
-    let baseline_events = input::read_events(&args.baseline)?;
-    let candidate_events = input::read_events(&args.candidate)?;
+    // Read events from both file sets
+    let baseline_events = read_events_from_files(&args.baseline)?;
+    let candidate_events = read_events_from_files(&args.candidate)?;
 
     // Join request+response pairs
     let baseline_joined = join::join_events(baseline_events);
