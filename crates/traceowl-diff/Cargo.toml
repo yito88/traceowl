@@ -5,4 +5,12 @@ edition = "2024"
 
 [dependencies]
 traceowl-schema = { path = "../traceowl-schema" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
