@@ -1,6 +1,5 @@
 pub mod backend;
 pub mod config;
-pub mod error;
 pub mod events;
 pub mod health;
 pub mod proxy;

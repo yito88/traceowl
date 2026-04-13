@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use crate::backend::BackendHandler;
 use crate::config::Config;
-use crate::error::ErrorKind;
 use crate::events::*;
 use crate::queue::EventQueue;
 use crate::sampling;
@@ -184,6 +183,7 @@ async fn handle_instrumented(
 
         let resp_event = ResponseEvent::new(
             request_id_str,
+            now_ms(),
             StatusInfo {
                 ok: http_status < 400,
                 http_status,

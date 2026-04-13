@@ -1402,6 +1402,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
+name = "traceowl-diff"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "traceowl-schema",
+]
+
+[[package]]
 name = "traceowl-proxy"
 version = "0.1.0"
 dependencies = [
@@ -1416,9 +1424,18 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
+ "traceowl-schema",
  "tracing",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "traceowl-schema"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

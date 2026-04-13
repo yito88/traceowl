@@ -1,6 +1,5 @@
 mod backend;
 mod config;
-mod error;
 mod events;
 mod health;
 mod proxy;
