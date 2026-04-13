@@ -20,6 +20,8 @@ pub struct Config {
     pub flush_max_events: usize,
     #[serde(default = "default_upstream_request_timeout_ms")]
     pub upstream_request_timeout_ms: u64,
+    #[serde(default = "default_include_query_representation")]
+    pub include_query_representation: bool,
 }
 
 fn default_listen_addr() -> SocketAddr {
@@ -48,6 +50,10 @@ fn default_flush_max_events() -> usize {
 
 fn default_upstream_request_timeout_ms() -> u64 {
     10_000
+}
+
+fn default_include_query_representation() -> bool {
+    true
 }
 
 impl Config {

@@ -49,7 +49,7 @@ impl BackendHandler for QdrantHandler {
                 RequestMeta {
                     unsupported_shape,
                     query: QueryInfo {
-                        text: Some(normalized_text),
+                        representation: Some(normalized_text),
                         hash,
                         top_k,
                     },
@@ -60,7 +60,7 @@ impl BackendHandler for QdrantHandler {
                 RequestMeta {
                     unsupported_shape: true,
                     query: QueryInfo {
-                        text: None,
+                        representation: None,
                         hash: String::new(),
                         top_k: 0,
                     },

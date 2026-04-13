@@ -27,3 +27,7 @@ flush_max_events = 500
 
 # Timeout for upstream requests in milliseconds
 upstream_request_timeout_ms = 10000
+
+# Include the raw query vector representation in request events
+# Set to false to omit query.representation (reduces event size)
+include_query_representation = true

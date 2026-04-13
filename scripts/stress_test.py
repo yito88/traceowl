@@ -81,13 +81,14 @@ def generate_config_toml(
     return f"""\
 upstream_base_url = "http://localhost:{qdrant_port}"
 listen_addr = "127.0.0.1:{proxy_port}"
-sampling_rate = 1.0
+sampling_rate = 0.3
 queue_capacity = {queue_capacity}
 output_dir = "{output_dir}"
 rotation_max_bytes = 10485760
 flush_interval_ms = 500
 flush_max_events = 1000
 upstream_request_timeout_ms = 30000
+include_query_representation = false
 """
 
 

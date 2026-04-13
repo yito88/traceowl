@@ -96,6 +96,7 @@ async fn start_proxy(
         flush_interval_ms: 100,
         flush_max_events: 1000,
         upstream_request_timeout_ms: timeout_ms,
+        include_query_representation: true,
     };
 
     std::fs::create_dir_all(&config.output_dir).unwrap();

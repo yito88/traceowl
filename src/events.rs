@@ -43,7 +43,7 @@ pub struct DbInfo {
 #[derive(Debug, Serialize)]
 pub struct QueryInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
+    pub representation: Option<String>,
     pub hash: String,
     pub top_k: u64,
 }
@@ -52,7 +52,6 @@ pub struct QueryInfo {
 pub struct StatusInfo {
     pub ok: bool,
     pub http_status: u16,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<ErrorKind>,
 }
 

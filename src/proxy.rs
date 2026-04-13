@@ -157,7 +157,10 @@ async fn handle_instrumented(
             })
             .unwrap();
 
-        let request_meta = backend.parse_request(&request_match, &body);
+        let mut request_meta = backend.parse_request(&request_match, &body);
+        if !state.config.include_query_representation {
+            request_meta.query.representation = None;
+        }
         let db_info = DbInfo::from(&request_match);
 
         let req_event = RequestEvent::new(
