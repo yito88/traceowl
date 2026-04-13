@@ -83,21 +83,21 @@ fn extract_dense_vector(query: &serde_json::Value) -> (bool, String) {
     if let Some(arr) = as_number_array(query) {
         return (false, serde_json::to_string(arr).unwrap_or_default());
     }
-    if let Some(obj) = query.as_object() {
-        if let Some(nearest) = obj.get("nearest") {
-            if let Some(arr) = as_number_array(nearest) {
-                return (false, serde_json::to_string(arr).unwrap_or_default());
-            }
-        }
+    if let Some(obj) = query.as_object()
+        && let Some(nearest) = obj.get("nearest")
+        && let Some(arr) = as_number_array(nearest)
+    {
+        return (false, serde_json::to_string(arr).unwrap_or_default());
     }
     (true, serde_json::to_string(query).unwrap_or_default())
 }
 
 fn as_number_array(value: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
-    if let serde_json::Value::Array(arr) = value {
-        if !arr.is_empty() && arr.iter().all(|v| v.is_number()) {
-            return Some(arr);
-        }
+    if let serde_json::Value::Array(arr) = value
+        && !arr.is_empty()
+        && arr.iter().all(|v| v.is_number())
+    {
+        return Some(arr);
     }
     None
 }
@@ -118,28 +118,27 @@ fn parse_qdrant_hits(body: &[u8]) -> Vec<HitInfo> {
     let parsed: Result<serde_json::Value, _> = serde_json::from_slice(body);
     let mut hits = Vec::new();
 
-    if let Ok(json) = parsed {
-        if let Some(points) = json["result"]["points"]
+    if let Ok(json) = parsed
+        && let Some(points) = json["result"]["points"]
             .as_array()
             .or_else(|| json["result"].as_array())
             .or_else(|| json["points"].as_array())
-        {
-            for (rank, point) in points.iter().enumerate() {
-                let doc_id = point["id"]
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .or_else(|| point["id"].as_u64().map(|n| n.to_string()))
-                    .or_else(|| point["id"].as_f64().map(|n| n.to_string()))
-                    .unwrap_or_default();
+    {
+        for (rank, point) in points.iter().enumerate() {
+            let doc_id = point["id"]
+                .as_str()
+                .map(|s| s.to_string())
+                .or_else(|| point["id"].as_u64().map(|n| n.to_string()))
+                .or_else(|| point["id"].as_f64().map(|n| n.to_string()))
+                .unwrap_or_default();
 
-                let score = point["score"].as_f64().unwrap_or(0.0);
+            let score = point["score"].as_f64().unwrap_or(0.0);
 
-                hits.push(HitInfo {
-                    doc_id,
-                    rank: (rank + 1) as u32,
-                    score,
-                });
-            }
+            hits.push(HitInfo {
+                doc_id,
+                rank: (rank + 1) as u32,
+                score,
+            });
         }
     }
 
@@ -163,17 +162,21 @@ mod tests {
     #[test]
     fn test_no_match_get() {
         let handler = QdrantHandler;
-        assert!(handler
-            .match_request(&Method::GET, "/collections/my_col/points/query")
-            .is_none());
+        assert!(
+            handler
+                .match_request(&Method::GET, "/collections/my_col/points/query")
+                .is_none()
+        );
     }
 
     #[test]
     fn test_no_match_other_path() {
         let handler = QdrantHandler;
-        assert!(handler
-            .match_request(&Method::POST, "/collections/my_col/points/search")
-            .is_none());
+        assert!(
+            handler
+                .match_request(&Method::POST, "/collections/my_col/points/search")
+                .is_none()
+        );
     }
 
     #[test]
