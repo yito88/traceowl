@@ -3,9 +3,10 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use traceowl_schema::event_v1::EventV1;
 
-pub fn read_events(path: &Path) -> Result<Vec<EventV1>> {
+use crate::events::Event;
+
+pub fn read_events(path: &Path) -> Result<Vec<Event>> {
     let file = File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
     let reader = BufReader::new(file);
     let mut events = Vec::new();
@@ -19,7 +20,7 @@ pub fn read_events(path: &Path) -> Result<Vec<EventV1>> {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<EventV1>(line) {
+        match serde_json::from_str::<Event>(line) {
             Ok(event) => events.push(event),
             Err(e) => {
                 tracing::warn!(line = line_num, error = %e, "skipping malformed event line");

@@ -1,25 +1,25 @@
 use std::collections::HashMap;
 
-use traceowl_schema::event_v1::{EventV1, RequestEventV1, ResponseEventV1};
+use crate::events::{Event, RequestEvent, ResponseEvent};
 
 /// A joined request+response pair for the same request_id.
 pub struct JoinedRetrieval {
-    pub request: RequestEventV1,
-    pub response: ResponseEventV1,
+    pub request: RequestEvent,
+    pub response: ResponseEvent,
 }
 
 /// Join request and response events by request_id.
 /// Only returns pairs where both request and response exist.
-pub fn join_events(events: Vec<EventV1>) -> Vec<JoinedRetrieval> {
-    let mut requests: HashMap<String, RequestEventV1> = HashMap::new();
-    let mut responses: HashMap<String, ResponseEventV1> = HashMap::new();
+pub fn join_events(events: Vec<Event>) -> Vec<JoinedRetrieval> {
+    let mut requests: HashMap<String, RequestEvent> = HashMap::new();
+    let mut responses: HashMap<String, ResponseEvent> = HashMap::new();
 
     for event in events {
         match event {
-            EventV1::Request(req) => {
+            Event::Request(req) => {
                 requests.entry(req.request_id.clone()).or_insert(req);
             }
-            EventV1::Response(resp) => {
+            Event::Response(resp) => {
                 responses.entry(resp.request_id.clone()).or_insert(resp);
             }
         }
@@ -56,19 +56,19 @@ pub fn join_events(events: Vec<EventV1>) -> Vec<JoinedRetrieval> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use traceowl_schema::event_v1::*;
+    use crate::events::*;
 
-    fn make_request(id: &str) -> EventV1 {
-        EventV1::Request(RequestEventV1::new(
+    fn make_request(id: &str) -> Event {
+        Event::Request(RequestEvent::new(
             id.to_string(),
             100,
             true,
             false,
-            DbInfoV1 {
+            DbInfo {
                 kind: "qdrant".to_string(),
                 collection: "test".to_string(),
             },
-            QueryInfoV1 {
+            QueryInfo {
                 representation: None,
                 hash: "hash1".to_string(),
                 top_k: 10,
@@ -76,18 +76,18 @@ mod tests {
         ))
     }
 
-    fn make_response(id: &str, ok: bool) -> EventV1 {
-        EventV1::Response(ResponseEventV1::new(
+    fn make_response(id: &str, ok: bool) -> Event {
+        Event::Response(ResponseEvent::new(
             id.to_string(),
             200,
-            StatusInfoV1 {
+            StatusInfo {
                 ok,
                 http_status: if ok { 200 } else { 502 },
                 error_kind: None,
             },
-            TimingInfoV1 { latency_ms: 5 },
-            ResultInfoV1 {
-                hits: vec![HitV1 {
+            TimingInfo { latency_ms: 5 },
+            ResultInfo {
+                hits: vec![HitInfo {
                     doc_id: "doc1".to_string(),
                     rank: 1,
                     score: 0.9,

@@ -64,36 +64,36 @@ pub fn build_retrievals(joined: Vec<JoinedRetrieval>) -> Vec<NormalizedRetrieval
 #[cfg(test)]
 mod tests {
     use super::*;
-    use traceowl_schema::event_v1::*;
+    use crate::events::*;
 
     fn make_joined(id: &str, ok: bool) -> JoinedRetrieval {
         JoinedRetrieval {
-            request: RequestEventV1::new(
+            request: RequestEvent::new(
                 id.to_string(),
                 100,
                 true,
                 false,
-                DbInfoV1 {
+                DbInfo {
                     kind: "qdrant".to_string(),
                     collection: "test_col".to_string(),
                 },
-                QueryInfoV1 {
+                QueryInfo {
                     representation: None,
                     hash: format!("hash_{id}"),
                     top_k: 10,
                 },
             ),
-            response: ResponseEventV1::new(
+            response: ResponseEvent::new(
                 id.to_string(),
                 200,
-                StatusInfoV1 {
+                StatusInfo {
                     ok,
                     http_status: if ok { 200 } else { 502 },
                     error_kind: None,
                 },
-                TimingInfoV1 { latency_ms: 5 },
-                ResultInfoV1 {
-                    hits: vec![HitV1 {
+                TimingInfo { latency_ms: 5 },
+                ResultInfo {
+                    hits: vec![HitInfo {
                         doc_id: "doc1".to_string(),
                         rank: 1,
                         score: 0.9,
