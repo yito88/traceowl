@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "traceowl-diff", about = "Compare baseline vs candidate retrieval events")]
+#[command(
+    name = "traceowl-diff",
+    about = "Compare baseline vs candidate retrieval events"
+)]
 pub struct Args {
     /// Path to baseline event JSONL file
     #[arg(long)]

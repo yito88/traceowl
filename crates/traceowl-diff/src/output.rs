@@ -58,7 +58,8 @@ pub struct ScoreChange {
 }
 
 pub fn write_diffs(path: &Path, diffs: &[DiffRecord]) -> Result<()> {
-    let file = File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
+    let file =
+        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
     let mut writer = BufWriter::new(file);
 
     for diff in diffs {

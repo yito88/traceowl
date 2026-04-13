@@ -55,10 +55,7 @@ fn test_end_to_end_diff() {
     assert!(candidate_map.contains_key("hash_eee"));
 
     // Diff hash_aaa: top-1 changed (914 -> 822), 100 and 200 shared
-    let diff_aaa = basic_diff::compute_diff(
-        baseline_map["hash_aaa"],
-        candidate_map["hash_aaa"],
-    );
+    let diff_aaa = basic_diff::compute_diff(baseline_map["hash_aaa"], candidate_map["hash_aaa"]);
     assert_eq!(diff_aaa.key.query_hash, "hash_aaa");
     assert_eq!(diff_aaa.key.collection, "stress_test");
     assert_eq!(diff_aaa.key.top_k, 3);
@@ -69,10 +66,7 @@ fn test_end_to_end_diff() {
     assert!((diff_aaa.summary.top_k_overlap - 2.0 / 3.0).abs() < 0.001);
 
     // Diff hash_bbb: same docs, only score changes
-    let diff_bbb = basic_diff::compute_diff(
-        baseline_map["hash_bbb"],
-        candidate_map["hash_bbb"],
-    );
+    let diff_bbb = basic_diff::compute_diff(baseline_map["hash_bbb"], candidate_map["hash_bbb"]);
     assert!(!diff_bbb.summary.top_1_changed);
     assert!(diff_bbb.summary.added_doc_ids.is_empty());
     assert!(diff_bbb.summary.removed_doc_ids.is_empty());

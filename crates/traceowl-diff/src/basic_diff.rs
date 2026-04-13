@@ -1,9 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use crate::normalize::NormalizedRetrieval;
-use crate::output::{
-    DiffHit, DiffKey, DiffRecord, DiffSide, DiffSummary, RankChange, ScoreChange,
-};
+use crate::output::{DiffHit, DiffKey, DiffRecord, DiffSide, DiffSummary, RankChange, ScoreChange};
 
 pub fn compute_diff(baseline: &NormalizedRetrieval, candidate: &NormalizedRetrieval) -> DiffRecord {
     let baseline_ids: BTreeSet<&str> = baseline.hits.iter().map(|h| h.doc_id.as_str()).collect();
@@ -19,10 +17,16 @@ pub fn compute_diff(baseline: &NormalizedRetrieval, candidate: &NormalizedRetrie
         .collect();
 
     // Build lookup maps for docs present in both
-    let baseline_map: HashMap<&str, &crate::normalize::NormalizedHit> =
-        baseline.hits.iter().map(|h| (h.doc_id.as_str(), h)).collect();
-    let candidate_map: HashMap<&str, &crate::normalize::NormalizedHit> =
-        candidate.hits.iter().map(|h| (h.doc_id.as_str(), h)).collect();
+    let baseline_map: HashMap<&str, &crate::normalize::NormalizedHit> = baseline
+        .hits
+        .iter()
+        .map(|h| (h.doc_id.as_str(), h))
+        .collect();
+    let candidate_map: HashMap<&str, &crate::normalize::NormalizedHit> = candidate
+        .hits
+        .iter()
+        .map(|h| (h.doc_id.as_str(), h))
+        .collect();
 
     let common: BTreeSet<&str> = baseline_ids.intersection(&candidate_ids).copied().collect();
 
@@ -57,7 +61,11 @@ pub fn compute_diff(baseline: &NormalizedRetrieval, candidate: &NormalizedRetrie
         0.0
     };
 
-    let baseline_top1 = baseline.hits.iter().find(|h| h.rank == 1).map(|h| &h.doc_id);
+    let baseline_top1 = baseline
+        .hits
+        .iter()
+        .find(|h| h.rank == 1)
+        .map(|h| &h.doc_id);
     let candidate_top1 = candidate
         .hits
         .iter()
@@ -111,10 +119,7 @@ mod tests {
     use super::*;
     use crate::normalize::{NormalizedHit, NormalizedRetrieval};
 
-    fn make_retrieval(
-        request_id: &str,
-        hits: Vec<(&str, u32, f64)>,
-    ) -> NormalizedRetrieval {
+    fn make_retrieval(request_id: &str, hits: Vec<(&str, u32, f64)>) -> NormalizedRetrieval {
         NormalizedRetrieval {
             request_id: request_id.to_string(),
             query_hash: "hash1".to_string(),
@@ -134,8 +139,7 @@ mod tests {
     #[test]
     fn test_identical_results() {
         let baseline = make_retrieval("b1", vec![("d1", 1, 0.9), ("d2", 2, 0.8), ("d3", 3, 0.7)]);
-        let candidate =
-            make_retrieval("c1", vec![("d1", 1, 0.9), ("d2", 2, 0.8), ("d3", 3, 0.7)]);
+        let candidate = make_retrieval("c1", vec![("d1", 1, 0.9), ("d2", 2, 0.8), ("d3", 3, 0.7)]);
         let diff = compute_diff(&baseline, &candidate);
 
         assert!(diff.summary.added_doc_ids.is_empty());
@@ -179,8 +183,7 @@ mod tests {
     #[test]
     fn test_partial_overlap() {
         let baseline = make_retrieval("b1", vec![("d1", 1, 0.9), ("d2", 2, 0.8), ("d3", 3, 0.7)]);
-        let candidate =
-            make_retrieval("c1", vec![("d1", 1, 0.9), ("d4", 2, 0.85), ("d5", 3, 0.7)]);
+        let candidate = make_retrieval("c1", vec![("d1", 1, 0.9), ("d4", 2, 0.85), ("d5", 3, 0.7)]);
         let diff = compute_diff(&baseline, &candidate);
 
         assert_eq!(diff.summary.added_doc_ids.len(), 2); // d4, d5
