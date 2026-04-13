@@ -36,27 +36,7 @@ impl BackendHandler for QdrantHandler {
 
         match parsed {
             Ok(body_json) => {
-                let (unsupported_shape, query_text) = match &body_json["query"] {
-                    serde_json::Value::Array(arr) => {
-                        // Simple dense vector: array of numbers
-                        let all_numbers = arr.iter().all(|v| v.is_number());
-                        if all_numbers && !arr.is_empty() {
-                            (false, serde_json::to_string(arr).unwrap_or_default())
-                        } else {
-                            (
-                                true,
-                                serde_json::to_string(&body_json["query"]).unwrap_or_default(),
-                            )
-                        }
-                    }
-                    _ => {
-                        // Any other shape (object, string, null) is unsupported
-                        (
-                            true,
-                            serde_json::to_string(&body_json["query"]).unwrap_or_default(),
-                        )
-                    }
-                };
+                let (unsupported_shape, query_text) = extract_dense_vector(&body_json["query"]);
 
                 let top_k = body_json["limit"]
                     .as_u64()
@@ -93,6 +73,33 @@ impl BackendHandler for QdrantHandler {
         let hits = parse_qdrant_hits(body);
         ResponseMeta { hits }
     }
+}
+
+/// Try to extract a dense vector from the query field.
+/// Supports:
+///   - Plain array: [0.1, 0.2, ...]
+///   - Wrapped object: {"nearest": [0.1, 0.2, ...]}
+fn extract_dense_vector(query: &serde_json::Value) -> (bool, String) {
+    if let Some(arr) = as_number_array(query) {
+        return (false, serde_json::to_string(arr).unwrap_or_default());
+    }
+    if let Some(obj) = query.as_object() {
+        if let Some(nearest) = obj.get("nearest") {
+            if let Some(arr) = as_number_array(nearest) {
+                return (false, serde_json::to_string(arr).unwrap_or_default());
+            }
+        }
+    }
+    (true, serde_json::to_string(query).unwrap_or_default())
+}
+
+fn as_number_array(value: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    if let serde_json::Value::Array(arr) = value {
+        if !arr.is_empty() && arr.iter().all(|v| v.is_number()) {
+            return Some(arr);
+        }
+    }
+    None
 }
 
 fn normalize_query_text(text: &str) -> String {
@@ -178,6 +185,21 @@ mod tests {
             path: "/collections/test/points/query".to_string(),
         };
         let body = br#"{"query": [0.1, 0.2, 0.3], "limit": 5}"#;
+        let meta = handler.parse_request(&matched, body);
+        assert!(!meta.unsupported_shape);
+        assert_eq!(meta.query.top_k, 5);
+        assert!(!meta.query.hash.is_empty());
+    }
+
+    #[test]
+    fn test_parse_wrapped_nearest_vector() {
+        let handler = QdrantHandler;
+        let matched = RequestMatch {
+            db_kind: "qdrant".to_string(),
+            collection: "test".to_string(),
+            path: "/collections/test/points/query".to_string(),
+        };
+        let body = br#"{"query": {"nearest": [0.1, 0.2, 0.3]}, "limit": 5}"#;
         let meta = handler.parse_request(&matched, body);
         assert!(!meta.unsupported_shape);
         assert_eq!(meta.query.top_k, 5);

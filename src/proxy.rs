@@ -3,6 +3,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, Method, Uri};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
+use http::header::{ACCEPT_ENCODING, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use http::StatusCode;
 use reqwest::Client;
 use std::sync::Arc;
@@ -66,10 +67,12 @@ async fn handle_instrumented(
     let start = Instant::now();
     let upstream_url = format!("{}{}", state.config.upstream_base_url, uri);
 
+    let fwd_headers = strip_hop_headers(&headers);
+
     let result = state
         .client
         .request(http::Method::POST, &upstream_url)
-        .headers(headers)
+        .headers(fwd_headers)
         .body(body.clone())
         .send()
         .await;
@@ -201,10 +204,11 @@ async fn forward_raw(
     body: Bytes,
 ) -> Response {
     let upstream_url = format!("{}{}", upstream_base_url, uri);
+    let fwd_headers = strip_hop_headers(&headers);
 
     let req_builder = client
         .request(method.clone(), &upstream_url)
-        .headers(headers)
+        .headers(fwd_headers)
         .body(body);
 
     match req_builder.send().await {
@@ -236,4 +240,13 @@ async fn forward_raw(
             }
         }
     }
+}
+
+fn strip_hop_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut out = headers.clone();
+    out.remove(HOST);
+    out.remove(CONTENT_LENGTH);
+    out.remove(TRANSFER_ENCODING);
+    out.remove(ACCEPT_ENCODING);
+    out
 }
