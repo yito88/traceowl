@@ -67,8 +67,8 @@ Client → Proxy → VectorDB
 - **traceowl-diff**  
   Computes differences between retrieval results
 
-- **analyzer (private)**  
-  Generates human-readable HTML reports
+- **traceowl-analyzer (private)**  
+  Analyse and generates human-readable HTML reports
 
 ---
 
@@ -90,7 +90,7 @@ Client → Proxy → VectorDB
 - **Human-in-the-loop**  
   Focus on helping engineers review changes efficiently
 
-- **Deterministic and explainable**
+- **Deterministic and explainable**  
   No black-box scoring — all differences are traceable
 
 ---
