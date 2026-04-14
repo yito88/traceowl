@@ -8,6 +8,8 @@ TraceOwl captures, compares, and explains differences in VectorDB search results
 
 ## Example Report
 
+A report showing what changed between two retrieval runs.
+
 ### Summary & Guidance
 ![summary](./docs/report_summary.png)
 
@@ -67,8 +69,8 @@ Client → Proxy → VectorDB
 - **traceowl-diff**  
   Computes differences between retrieval results
 
-- **traceowl-analyzer (private)**  
-  Analyse and generates human-readable HTML reports
+- **traceowl-analyzer (commercial)**  
+  Advanced analysis and generates human-readable HTML reports
 
 ---
 
