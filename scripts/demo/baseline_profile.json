@@ -1,0 +1,9 @@
+{
+  "name": "baseline",
+  "token_weight": 1.0,
+  "category_weight": 0.9,
+  "term_bias_weight": 1.2,
+  "noise": 0.02,
+  "term_biases": {},
+  "term_penalties": {}
+}

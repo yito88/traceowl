@@ -1,0 +1,65 @@
+{
+  "name": "candidate_intentionally_shifted",
+  "token_weight": 1.0,
+  "category_weight": 0.7,
+  "term_bias_weight": 1.8,
+  "noise": 0.06,
+  "term_biases": {
+    "refund": [
+      "usage"
+    ],
+    "invoice": [
+      "usage"
+    ],
+    "subscription": [
+      "misc"
+    ],
+    "billing": [
+      "misc"
+    ],
+    "payment": [
+      "auth"
+    ],
+    "timeout": [
+      "usage"
+    ],
+    "error": [
+      "misc"
+    ],
+    "upload": [
+      "errors"
+    ],
+    "project": [
+      "billing"
+    ],
+    "support": [
+      "billing"
+    ]
+  },
+  "term_penalties": {
+    "refund": [
+      "billing"
+    ],
+    "invoice": [
+      "billing"
+    ],
+    "subscription": [
+      "billing"
+    ],
+    "timeout": [
+      "errors"
+    ],
+    "error": [
+      "errors"
+    ],
+    "upload": [
+      "usage"
+    ],
+    "project": [
+      "usage"
+    ],
+    "support": [
+      "misc"
+    ]
+  }
+}
