@@ -181,7 +181,7 @@ include_query_representation = false
 
 def start_proxy(proxy_bin: Path, config_path: Path) -> subprocess.Popen:
     return subprocess.Popen(
-        [str(proxy_bin), "--config", str(config_path)],
+        [str(proxy_bin), str(config_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
