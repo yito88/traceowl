@@ -1,3 +1,5 @@
+pub mod hashing;
+pub mod pinecone;
 pub mod qdrant;
 
 use http::Method;
@@ -24,6 +26,10 @@ impl RequestMatch {
 pub struct RequestMeta {
     pub unsupported_shape: bool,
     pub query: QueryInfo,
+    /// Overrides `RequestMatch::collection` when building `DbInfo`.
+    /// Used by adapters (e.g. Pinecone) that cannot determine the collection
+    /// from the URL path alone and extract it from the request body instead.
+    pub collection_override: Option<String>,
 }
 
 /// Parsed response metadata for event emission.

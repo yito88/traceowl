@@ -160,7 +160,13 @@ async fn handle_instrumented(
         if !state.config.include_query_representation {
             request_meta.query.representation = None;
         }
-        let db_info = DbInfo::from(&request_match);
+        let db_info = match request_meta.collection_override.take() {
+            Some(col) => DbInfo {
+                kind: request_match.db_kind.clone(),
+                collection: col,
+            },
+            None => DbInfo::from(&request_match),
+        };
 
         let req_event = RequestEvent::new(
             request_id_str.clone(),

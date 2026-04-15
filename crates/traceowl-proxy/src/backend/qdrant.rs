@@ -1,9 +1,11 @@
 use http::Method;
-use sha2::{Digest, Sha256};
 
 use crate::events::{HitInfo, QueryInfo};
 
-use super::{BackendHandler, RequestMatch, RequestMeta, ResponseMeta};
+use super::{
+    BackendHandler, RequestMatch, RequestMeta, ResponseMeta,
+    hashing::{QueryRepresentation, compute_query_hash},
+};
 
 pub struct QdrantHandler;
 
@@ -36,36 +38,45 @@ impl BackendHandler for QdrantHandler {
 
         match parsed {
             Ok(body_json) => {
-                let (unsupported_shape, query_text) = extract_dense_vector(&body_json["query"]);
-
                 let top_k = body_json["limit"]
                     .as_u64()
                     .or_else(|| body_json["top"].as_u64())
                     .unwrap_or(10);
 
-                let normalized_text = normalize_query_text(&query_text);
-                let hash = compute_query_hash(&matched.collection, &normalized_text, top_k);
-
-                RequestMeta {
-                    unsupported_shape,
-                    query: QueryInfo {
-                        representation: Some(normalized_text),
-                        hash,
-                        top_k,
+                match extract_dense_vector(&body_json["query"]) {
+                    Some(vec) => {
+                        let repr = QueryRepresentation::Vector(vec);
+                        let hash = compute_query_hash(&matched.collection, None, top_k, &repr);
+                        RequestMeta {
+                            unsupported_shape: false,
+                            collection_override: None,
+                            query: QueryInfo {
+                                representation: None,
+                                hash,
+                                top_k,
+                            },
+                        }
+                    }
+                    None => RequestMeta {
+                        unsupported_shape: true,
+                        collection_override: None,
+                        query: QueryInfo {
+                            representation: None,
+                            hash: String::new(),
+                            top_k,
+                        },
                     },
                 }
             }
-            Err(_) => {
-                // Can't parse body — mark as unsupported but don't fail forwarding
-                RequestMeta {
-                    unsupported_shape: true,
-                    query: QueryInfo {
-                        representation: None,
-                        hash: String::new(),
-                        top_k: 0,
-                    },
-                }
-            }
+            Err(_) => RequestMeta {
+                unsupported_shape: true,
+                collection_override: None,
+                query: QueryInfo {
+                    representation: None,
+                    hash: String::new(),
+                    top_k: 0,
+                },
+            },
         }
     }
 
@@ -79,39 +90,35 @@ impl BackendHandler for QdrantHandler {
 /// Supports:
 ///   - Plain array: [0.1, 0.2, ...]
 ///   - Wrapped object: {"nearest": [0.1, 0.2, ...]}
-fn extract_dense_vector(query: &serde_json::Value) -> (bool, String) {
-    if let Some(arr) = as_number_array(query) {
-        return (false, serde_json::to_string(arr).unwrap_or_default());
+///
+/// Returns `None` for unsupported shapes.
+fn extract_dense_vector(query: &serde_json::Value) -> Option<Vec<f32>> {
+    if let Some(vec) = as_f32_array(query) {
+        return Some(vec);
     }
     if let Some(obj) = query.as_object()
         && let Some(nearest) = obj.get("nearest")
-        && let Some(arr) = as_number_array(nearest)
+        && let Some(vec) = as_f32_array(nearest)
     {
-        return (false, serde_json::to_string(arr).unwrap_or_default());
-    }
-    (true, serde_json::to_string(query).unwrap_or_default())
-}
-
-fn as_number_array(value: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
-    if let serde_json::Value::Array(arr) = value
-        && !arr.is_empty()
-        && arr.iter().all(|v| v.is_number())
-    {
-        return Some(arr);
+        return Some(vec);
     }
     None
 }
 
-fn normalize_query_text(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<&str>>().join(" ")
-}
-
-fn compute_query_hash(collection: &str, normalized_text: &str, top_k: u64) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(collection.as_bytes());
-    hasher.update(normalized_text.as_bytes());
-    hasher.update(top_k.to_le_bytes());
-    format!("{:x}", hasher.finalize())
+fn as_f32_array(value: &serde_json::Value) -> Option<Vec<f32>> {
+    if let serde_json::Value::Array(arr) = value
+        && !arr.is_empty()
+        && arr.iter().all(|v| v.is_number())
+    {
+        let floats: Vec<f32> = arr
+            .iter()
+            .filter_map(|v| v.as_f64().map(|f| f as f32))
+            .collect();
+        if floats.len() == arr.len() {
+            return Some(floats);
+        }
+    }
+    None
 }
 
 fn parse_qdrant_hits(body: &[u8]) -> Vec<HitInfo> {
@@ -192,6 +199,7 @@ mod tests {
         assert!(!meta.unsupported_shape);
         assert_eq!(meta.query.top_k, 5);
         assert!(!meta.query.hash.is_empty());
+        assert!(meta.collection_override.is_none());
     }
 
     #[test]
@@ -223,14 +231,34 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_query_text() {
-        assert_eq!(normalize_query_text("  hello   world  "), "hello world");
+    fn test_hash_from_vector_semantics() {
+        // Verify the hash is derived from vector values, not JSON serialization.
+        // Two bodies with numerically identical vectors but different JSON formatting
+        // must produce the same hash.
+        let handler = QdrantHandler;
+        let matched = RequestMatch {
+            db_kind: "qdrant".to_string(),
+            collection: "col".to_string(),
+            path: "/collections/col/points/query".to_string(),
+        };
+        let body1 = br#"{"query": [0.100, 0.200, 0.300], "limit": 10}"#;
+        let body2 = br#"{"query": [0.1, 0.2, 0.3], "limit": 10}"#;
+        let meta1 = handler.parse_request(&matched, body1);
+        let meta2 = handler.parse_request(&matched, body2);
+        assert_eq!(meta1.query.hash, meta2.query.hash);
     }
 
     #[test]
     fn test_query_hash_deterministic() {
-        let h1 = compute_query_hash("col", "text", 10);
-        let h2 = compute_query_hash("col", "text", 10);
+        let handler = QdrantHandler;
+        let matched = RequestMatch {
+            db_kind: "qdrant".to_string(),
+            collection: "col".to_string(),
+            path: "/collections/col/points/query".to_string(),
+        };
+        let body = br#"{"query": [0.1, 0.2, 0.3], "limit": 10}"#;
+        let h1 = handler.parse_request(&matched, body).query.hash;
+        let h2 = handler.parse_request(&matched, body).query.hash;
         assert_eq!(h1, h2);
     }
 

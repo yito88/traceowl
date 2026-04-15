@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-Stress test for traceowl-proxy against a real Qdrant instance.
+Stress test for traceowl-proxy against a real VectorDB instance.
+
+Supported backends: qdrant, pinecone
 
 Phases:
   1. Ramp-up: increasing concurrency levels, measure throughput + latency percentiles
   2. Soak: sustained moderate load, check memory stability + event correctness
 
 Prerequisites:
-  - Docker (for Qdrant container)
+  - Docker (for the VectorDB container)
   - Pre-built proxy binary (cargo build --release)
-  - pip install qdrant-client
+  - pip install qdrant-client httpx   (qdrant-client only needed for Qdrant backend)
 
 Usage:
-  python scripts/stress_test.py                        # full run
-  python scripts/stress_test.py --ramp-only            # ramp-up only
-  python scripts/stress_test.py --soak-only --soak-duration 60  # 1-min soak
-  python scripts/stress_test.py --skip-docker          # use existing Qdrant
+  python scripts/stress_test.py                                  # Qdrant, full run
+  python scripts/stress_test.py --backend pinecone               # Pinecone, full run
+  python scripts/stress_test.py --ramp-only                      # ramp-up only
+  python scripts/stress_test.py --soak-only --soak-duration 60   # 1-min soak
+  python scripts/stress_test.py --skip-docker                    # use existing VectorDB
 """
 
 import argparse
@@ -32,15 +35,16 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from qdrant_client import AsyncQdrantClient, models
-
-COLLECTION_NAME = "stress_test"
 VECTOR_DIM = 128
 NUM_SEED_POINTS = 1000
 RAMP_CONCURRENCY_LEVELS = [1, 5, 10, 25, 50, 100]
 RAMP_REQUESTS_PER_LEVEL = 500
 SOAK_CONCURRENCY = 25
 SOAK_WINDOW_SECONDS = 10
+
+# Backend-specific defaults
+QDRANT_COLLECTION = "stress_test"
+PINECONE_NAMESPACE = "stress-ns"
 
 
 @dataclass
@@ -76,10 +80,14 @@ def random_vector() -> list:
 
 
 def generate_config_toml(
-    qdrant_port: int, proxy_port: int, output_dir: str, queue_capacity: int = 16384
+    upstream_port: int,
+    proxy_port: int,
+    output_dir: str,
+    queue_capacity: int = 16384,
+    upstream_host: str = "localhost",
 ) -> str:
     return f"""\
-upstream_base_url = "http://localhost:{qdrant_port}"
+upstream_base_url = "http://{upstream_host}:{upstream_port}"
 listen_addr = "127.0.0.1:{proxy_port}"
 sampling_rate = 0.3
 queue_capacity = {queue_capacity}
@@ -96,52 +104,23 @@ include_query_representation = false
 # Lifecycle helpers
 # ---------------------------------------------------------------------------
 
-def start_qdrant_container(port: int) -> str:
-    container_name = "traceowl-stress-qdrant"
-    # Remove stale container if any
-    subprocess.run(
-        ["docker", "rm", "-f", container_name],
-        capture_output=True,
-    )
-    result = subprocess.run(
-        [
-            "docker", "run", "-d",
-            "--name", container_name,
-            "-p", f"{port}:6333",
-            "qdrant/qdrant:latest",
-        ],
-        capture_output=True,
-        text=True,
-    )
+def start_container(image: str, name: str, port_mapping: str, env_vars: dict = None) -> str:
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    cmd = ["docker", "run", "-d", "--name", name, "-p", port_mapping]
+    for k, v in (env_vars or {}).items():
+        cmd += ["-e", f"{k}={v}"]
+    cmd.append(image)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"Failed to start Qdrant container: {result.stderr}", file=sys.stderr)
+        print(f"Failed to start container {name}: {result.stderr}", file=sys.stderr)
         sys.exit(1)
-    print(f"Started Qdrant container on port {port}")
-    return container_name
+    print(f"Started {name} container")
+    return name
 
 
-def stop_qdrant_container(container_name: str):
-    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
-    print(f"Stopped Qdrant container: {container_name}")
-
-
-async def wait_for_qdrant(url: str, timeout: float = 30.0):
-    """Poll Qdrant readiness endpoint."""
-    import httpx
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{url}/readyz", timeout=2.0)
-                if resp.status_code == 200:
-                    print("Qdrant is ready")
-                    return
-        except Exception:
-            pass
-        await asyncio.sleep(0.5)
-    print("Qdrant did not become ready in time", file=sys.stderr)
-    sys.exit(1)
+def stop_container(name: str):
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    print(f"Stopped container: {name}")
 
 
 def start_proxy(proxy_bin: str, config_path: str) -> subprocess.Popen:
@@ -150,7 +129,6 @@ def start_proxy(proxy_bin: str, config_path: str) -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    # Give the proxy a moment to bind
     time.sleep(0.5)
     if proc.poll() is not None:
         stderr = proc.stderr.read().decode() if proc.stderr else ""
@@ -170,43 +148,62 @@ def stop_proxy(proc: subprocess.Popen):
     print("Proxy stopped")
 
 
+# ---------------------------------------------------------------------------
+# Qdrant helpers
+# ---------------------------------------------------------------------------
+
+async def wait_for_qdrant(url: str, timeout: float = 30.0):
+    import httpx
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{url}/readyz", timeout=2.0)
+                if resp.status_code == 200:
+                    print("Qdrant is ready")
+                    return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    print("Qdrant did not become ready in time", file=sys.stderr)
+    sys.exit(1)
+
+
 async def setup_qdrant(qdrant_url: str):
-    """Create collection and upsert seed points directly to Qdrant."""
+    from qdrant_client import AsyncQdrantClient, models
+
     client = AsyncQdrantClient(url=qdrant_url, prefer_grpc=False)
     try:
-        if await client.collection_exists(COLLECTION_NAME):
-            await client.delete_collection(COLLECTION_NAME)
+        if await client.collection_exists(QDRANT_COLLECTION):
+            await client.delete_collection(QDRANT_COLLECTION)
         await client.create_collection(
-            collection_name=COLLECTION_NAME,
+            collection_name=QDRANT_COLLECTION,
             vectors_config=models.VectorParams(
                 size=VECTOR_DIM,
                 distance=models.Distance.COSINE,
             ),
         )
-        print(f"Created collection '{COLLECTION_NAME}' (dim={VECTOR_DIM})")
+        print(f"Created Qdrant collection '{QDRANT_COLLECTION}' (dim={VECTOR_DIM})")
 
-        # Upsert in batches of 100
         batch_size = 100
         for start in range(0, NUM_SEED_POINTS, batch_size):
             end = min(start + batch_size, NUM_SEED_POINTS)
             points = [
-                models.PointStruct(
-                    id=i,
-                    vector=random_vector(),
-                    payload={"idx": i},
-                )
+                models.PointStruct(id=i, vector=random_vector(), payload={"idx": i})
                 for i in range(start, end)
             ]
-            await client.upsert(collection_name=COLLECTION_NAME, points=points, wait=True)
-        print(f"Upserted {NUM_SEED_POINTS} points")
+            await client.upsert(collection_name=QDRANT_COLLECTION, points=points, wait=True)
+        print(f"Upserted {NUM_SEED_POINTS} points into Qdrant")
     finally:
         await client.close()
 
 
 async def teardown_qdrant(qdrant_url: str):
+    from qdrant_client import AsyncQdrantClient
+
     client = AsyncQdrantClient(url=qdrant_url, prefer_grpc=False)
     try:
-        await client.delete_collection(collection_name=COLLECTION_NAME)
+        await client.delete_collection(collection_name=QDRANT_COLLECTION)
     except Exception:
         pass
     finally:
@@ -214,19 +211,72 @@ async def teardown_qdrant(qdrant_url: str):
 
 
 # ---------------------------------------------------------------------------
+# Pinecone helpers
+# ---------------------------------------------------------------------------
+
+async def wait_for_pinecone(url: str, timeout: float = 30.0):
+    import httpx
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"{url}/describe_index_stats", timeout=2.0)
+                if resp.status_code < 500:
+                    print("Pinecone is ready")
+                    return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    print("Pinecone did not become ready in time", file=sys.stderr)
+    sys.exit(1)
+
+
+async def setup_pinecone(pinecone_url: str):
+    import httpx
+
+    batch_size = 100
+    async with httpx.AsyncClient(base_url=pinecone_url, timeout=30.0) as client:
+        for start in range(0, NUM_SEED_POINTS, batch_size):
+            end = min(start + batch_size, NUM_SEED_POINTS)
+            vectors = [
+                {"id": str(i), "values": random_vector()}
+                for i in range(start, end)
+            ]
+            resp = await client.post(
+                "/vectors/upsert",
+                json={"vectors": vectors, "namespace": PINECONE_NAMESPACE},
+            )
+            resp.raise_for_status()
+    print(f"Upserted {NUM_SEED_POINTS} vectors into Pinecone namespace '{PINECONE_NAMESPACE}'")
+
+
+async def teardown_pinecone(pinecone_url: str):
+    import httpx
+    try:
+        async with httpx.AsyncClient(base_url=pinecone_url, timeout=10.0) as client:
+            await client.post(
+                "/vectors/delete",
+                json={"deleteAll": True, "namespace": PINECONE_NAMESPACE},
+            )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Ramp-up
 # ---------------------------------------------------------------------------
 
-async def run_ramp(proxy_url: str):
+async def run_ramp_qdrant(proxy_url: str):
+    from qdrant_client import AsyncQdrantClient
+
     print("\n" + "=" * 60)
-    print("PHASE 1: Throughput / Latency Ramp-Up")
+    print("PHASE 1: Throughput / Latency Ramp-Up (Qdrant)")
     print("=" * 60)
 
     for concurrency in RAMP_CONCURRENCY_LEVELS:
         stats = LatencyStats()
         semaphore = asyncio.Semaphore(concurrency)
         client = AsyncQdrantClient(url=proxy_url, prefer_grpc=False, timeout=30)
-
         first_error_logged = False
 
         async def do_query():
@@ -235,12 +285,11 @@ async def run_ramp(proxy_url: str):
                 t0 = time.monotonic()
                 try:
                     await client.query_points(
-                        collection_name=COLLECTION_NAME,
+                        collection_name=QDRANT_COLLECTION,
                         query=random_vector(),
                         limit=10,
                     )
-                    latency_ms = (time.monotonic() - t0) * 1000
-                    stats.record(latency_ms)
+                    stats.record((time.monotonic() - t0) * 1000)
                 except Exception as e:
                     stats.record_error()
                     if not first_error_logged:
@@ -248,23 +297,65 @@ async def run_ramp(proxy_url: str):
                         print(f"  First error: {type(e).__name__}: {e}")
 
         wall_start = time.monotonic()
-        tasks = [asyncio.create_task(do_query()) for _ in range(RAMP_REQUESTS_PER_LEVEL)]
-        await asyncio.gather(*tasks)
+        await asyncio.gather(*[asyncio.create_task(do_query()) for _ in range(RAMP_REQUESTS_PER_LEVEL)])
         wall_duration = time.monotonic() - wall_start
-
         await client.close()
 
-        throughput = stats.success_count / wall_duration if wall_duration > 0 else 0
-        error_pct = (stats.errors / stats.count * 100) if stats.count > 0 else 0
+        _print_ramp_row(concurrency, stats, wall_duration)
 
-        print(f"\nConcurrency: {concurrency:>3} | "
-              f"Requests: {stats.count} | "
-              f"Duration: {wall_duration:.1f}s")
-        print(f"  Throughput: {throughput:.1f} req/s")
-        print(f"  Latency  p50: {stats.percentile(50):.1f}ms | "
-              f"p95: {stats.percentile(95):.1f}ms | "
-              f"p99: {stats.percentile(99):.1f}ms")
-        print(f"  Errors: {stats.errors} ({error_pct:.1f}%)")
+
+async def run_ramp_pinecone(proxy_url: str):
+    import httpx
+
+    print("\n" + "=" * 60)
+    print("PHASE 1: Throughput / Latency Ramp-Up (Pinecone)")
+    print("=" * 60)
+
+    for concurrency in RAMP_CONCURRENCY_LEVELS:
+        stats = LatencyStats()
+        semaphore = asyncio.Semaphore(concurrency)
+        first_error_logged = False
+
+        async def do_query():
+            nonlocal first_error_logged
+            async with semaphore:
+                t0 = time.monotonic()
+                try:
+                    async with httpx.AsyncClient(base_url=proxy_url, timeout=30.0) as client:
+                        resp = await client.post(
+                            "/query",
+                            json={
+                                "vector": random_vector(),
+                                "topK": 10,
+                                "namespace": PINECONE_NAMESPACE,
+                            },
+                        )
+                    resp.raise_for_status()
+                    stats.record((time.monotonic() - t0) * 1000)
+                except Exception as e:
+                    stats.record_error()
+                    if not first_error_logged:
+                        first_error_logged = True
+                        print(f"  First error: {type(e).__name__}: {e}")
+
+        wall_start = time.monotonic()
+        await asyncio.gather(*[asyncio.create_task(do_query()) for _ in range(RAMP_REQUESTS_PER_LEVEL)])
+        wall_duration = time.monotonic() - wall_start
+
+        _print_ramp_row(concurrency, stats, wall_duration)
+
+
+def _print_ramp_row(concurrency: int, stats: LatencyStats, wall_duration: float):
+    throughput = stats.success_count / wall_duration if wall_duration > 0 else 0
+    error_pct = (stats.errors / stats.count * 100) if stats.count > 0 else 0
+    print(f"\nConcurrency: {concurrency:>3} | "
+          f"Requests: {stats.count} | "
+          f"Duration: {wall_duration:.1f}s")
+    print(f"  Throughput: {throughput:.1f} req/s")
+    print(f"  Latency  p50: {stats.percentile(50):.1f}ms | "
+          f"p95: {stats.percentile(95):.1f}ms | "
+          f"p99: {stats.percentile(99):.1f}ms")
+    print(f"  Errors: {stats.errors} ({error_pct:.1f}%)")
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +363,6 @@ async def run_ramp(proxy_url: str):
 # ---------------------------------------------------------------------------
 
 def get_rss_kb(pid: int) -> int | None:
-    """Read VmRSS from /proc/{pid}/status (Linux only)."""
     try:
         with open(f"/proc/{pid}/status") as f:
             for line in f:
@@ -283,9 +373,11 @@ def get_rss_kb(pid: int) -> int | None:
     return None
 
 
-async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
+async def run_soak_qdrant(proxy_url: str, duration: int, proxy_pid: int):
+    from qdrant_client import AsyncQdrantClient
+
     print("\n" + "=" * 60)
-    print(f"PHASE 2: Soak Test ({duration}s, concurrency={SOAK_CONCURRENCY})")
+    print(f"PHASE 2: Soak Test — Qdrant ({duration}s, concurrency={SOAK_CONCURRENCY})")
     print("=" * 60)
 
     rss_start = get_rss_kb(proxy_pid)
@@ -294,8 +386,50 @@ async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
 
     semaphore = asyncio.Semaphore(SOAK_CONCURRENCY)
     client = AsyncQdrantClient(url=proxy_url, prefer_grpc=False, timeout=30)
-    running = True
 
+    async def make_query():
+        async with semaphore:
+            await client.query_points(
+                collection_name=QDRANT_COLLECTION,
+                query=random_vector(),
+                limit=10,
+            )
+
+    await _run_soak_loop(make_query, duration, proxy_pid, rss_start)
+    await client.close()
+
+
+async def run_soak_pinecone(proxy_url: str, duration: int, proxy_pid: int):
+    import httpx
+
+    print("\n" + "=" * 60)
+    print(f"PHASE 2: Soak Test — Pinecone ({duration}s, concurrency={SOAK_CONCURRENCY})")
+    print("=" * 60)
+
+    rss_start = get_rss_kb(proxy_pid)
+    if rss_start is not None:
+        print(f"  Proxy RSS at start: {rss_start} KB")
+
+    semaphore = asyncio.Semaphore(SOAK_CONCURRENCY)
+
+    async def make_query():
+        async with semaphore:
+            async with httpx.AsyncClient(base_url=proxy_url, timeout=30.0) as c:
+                resp = await c.post(
+                    "/query",
+                    json={
+                        "vector": random_vector(),
+                        "topK": 10,
+                        "namespace": PINECONE_NAMESPACE,
+                    },
+                )
+            resp.raise_for_status()
+
+    await _run_soak_loop(make_query, duration, proxy_pid, rss_start)
+
+
+async def _run_soak_loop(make_query, duration: int, proxy_pid: int, rss_start: int | None):
+    running = True
     window_stats = LatencyStats()
     overall_stats = LatencyStats()
     window_start = time.monotonic()
@@ -304,22 +438,15 @@ async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
     async def worker():
         nonlocal window_stats, window_start
         while running:
-            async with semaphore:
-                if not running:
-                    break
-                t0 = time.monotonic()
-                try:
-                    await client.query_points(
-                        collection_name=COLLECTION_NAME,
-                        query=random_vector(),
-                        limit=10,
-                    )
-                    latency_ms = (time.monotonic() - t0) * 1000
-                    window_stats.record(latency_ms)
-                    overall_stats.record(latency_ms)
-                except Exception:
-                    window_stats.record_error()
-                    overall_stats.record_error()
+            t0 = time.monotonic()
+            try:
+                await make_query()
+                latency_ms = (time.monotonic() - t0) * 1000
+                window_stats.record(latency_ms)
+                overall_stats.record(latency_ms)
+            except Exception:
+                window_stats.record_error()
+                overall_stats.record_error()
 
     async def reporter():
         nonlocal window_stats, window_start
@@ -331,7 +458,6 @@ async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
             ws = window_stats
             window_stats = LatencyStats()
             window_start = time.monotonic()
-
             if ws.count == 0:
                 continue
             tp = ws.success_count / elapsed if elapsed > 0 else 0
@@ -344,7 +470,6 @@ async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
                   f"p95={ws.percentile(95):>6.1f}ms  "
                   f"err={ws.errors}({ep:.1f}%)")
 
-    # Launch workers and reporter
     workers = [asyncio.create_task(worker()) for _ in range(SOAK_CONCURRENCY)]
     reporter_task = asyncio.create_task(reporter())
 
@@ -355,9 +480,7 @@ async def run_soak(proxy_url: str, duration: int, proxy_pid: int):
         w.cancel()
     reporter_task.cancel()
     await asyncio.gather(*workers, reporter_task, return_exceptions=True)
-    await client.close()
 
-    # Summary
     total_elapsed = time.monotonic() - soak_start
     tp = overall_stats.success_count / total_elapsed if total_elapsed > 0 else 0
     ep = (overall_stats.errors / overall_stats.count * 100) if overall_stats.count > 0 else 0
@@ -394,7 +517,6 @@ def validate_events(output_dir: str, sample_size: int = 100):
     total_size = sum(os.path.getsize(f) for f in files)
     print(f"  Files: {len(files)}, Total size: {total_size / 1024:.1f} KB")
 
-    # Collect all lines
     all_lines = []
     for fp in files:
         with open(fp) as f:
@@ -409,7 +531,6 @@ def validate_events(output_dir: str, sample_size: int = 100):
         print("  No events to validate!")
         return
 
-    # Sample
     sample = random.sample(all_lines, min(sample_size, len(all_lines)))
     passed = 0
     failed = 0
@@ -422,7 +543,6 @@ def validate_events(output_dir: str, sample_size: int = 100):
             continue
 
         ok = True
-        # Common fields
         for key in ("schema_version", "event_type", "request_id", "timestamp_ms"):
             if key not in event:
                 ok = False
@@ -449,7 +569,6 @@ def validate_events(output_dir: str, sample_size: int = 100):
     print(f"    Passed: {passed}")
     print(f"    Failed: {failed}")
 
-    # Count request/response balance
     req_count = sum(1 for l in all_lines if '"event_type":"request"' in l or '"event_type": "request"' in l)
     resp_count = sum(1 for l in all_lines if '"event_type":"response"' in l or '"event_type": "response"' in l)
     print(f"  Request events : {req_count}")
@@ -464,75 +583,110 @@ def validate_events(output_dir: str, sample_size: int = 100):
 
 async def main():
     parser = argparse.ArgumentParser(description="traceowl-proxy stress test")
+    parser.add_argument(
+        "--backend",
+        choices=["qdrant", "pinecone"],
+        default="qdrant",
+        help="VectorDB backend to stress test (default: qdrant)",
+    )
+    # Qdrant options
     parser.add_argument("--qdrant-port", type=int, default=6333)
+    # Pinecone options
+    parser.add_argument("--pinecone-port", type=int, default=5080)
+    # Shared options
     parser.add_argument("--proxy-port", type=int, default=9090)
     parser.add_argument("--proxy-bin", default="target/release/traceowl-proxy")
     parser.add_argument("--skip-docker", action="store_true",
-                        help="Assume Qdrant is already running")
+                        help="Assume the VectorDB is already running")
     parser.add_argument("--ramp-only", action="store_true")
     parser.add_argument("--soak-only", action="store_true")
     parser.add_argument("--soak-duration", type=int, default=300,
                         help="Soak test duration in seconds (default: 300)")
     parser.add_argument("--output-dir", default="/tmp/traceowl-stress")
-    parser.add_argument("--queue-capacity", type=int, default=16384,
-                        help="Event queue capacity (default: 16384)")
+    parser.add_argument("--queue-capacity", type=int, default=16384)
     args = parser.parse_args()
 
-    qdrant_url = f"http://localhost:{args.qdrant_port}"
     proxy_url = f"http://localhost:{args.proxy_port}"
     output_dir = args.output_dir
     container_name = None
     proxy_proc = None
 
-    # Ensure clean output dir
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     try:
-        # 1. Start Qdrant
-        if not args.skip_docker:
-            container_name = start_qdrant_container(args.qdrant_port)
+        if args.backend == "qdrant":
+            upstream_port = args.qdrant_port
+            upstream_url = f"http://localhost:{upstream_port}"
 
-        await wait_for_qdrant(qdrant_url)
+            if not args.skip_docker:
+                container_name = start_container(
+                    image="qdrant/qdrant:latest",
+                    name="traceowl-stress-qdrant",
+                    port_mapping=f"{upstream_port}:6333",
+                )
 
-        # 2. Generate config and start proxy
-        config_path = os.path.join(output_dir, "config.toml")
-        with open(config_path, "w") as f:
-            f.write(generate_config_toml(args.qdrant_port, args.proxy_port, output_dir, args.queue_capacity))
+            await wait_for_qdrant(upstream_url)
 
-        proxy_proc = start_proxy(args.proxy_bin, config_path)
+            config_path = os.path.join(output_dir, "config.toml")
+            with open(config_path, "w") as f:
+                f.write(generate_config_toml(upstream_port, args.proxy_port, output_dir, args.queue_capacity))
 
-        # 3. Setup Qdrant data
-        await setup_qdrant(qdrant_url)
+            proxy_proc = start_proxy(args.proxy_bin, config_path)
+            await setup_qdrant(upstream_url)
+            await asyncio.sleep(0.5)
 
-        # Give proxy a moment to be fully ready
-        await asyncio.sleep(0.5)
+            if not args.soak_only:
+                await run_ramp_qdrant(proxy_url)
+            if not args.ramp_only:
+                await run_soak_qdrant(proxy_url, args.soak_duration, proxy_proc.pid)
 
-        # 4. Run phases
-        run_ramp_phase = not args.soak_only
-        run_soak_phase = not args.ramp_only
+            await asyncio.sleep(2)
+            validate_events(output_dir)
+            await teardown_qdrant(upstream_url)
 
-        if run_ramp_phase:
-            await run_ramp(proxy_url)
+        else:  # pinecone
+            upstream_port = args.pinecone_port
+            upstream_url = f"http://localhost:{upstream_port}"
 
-        if run_soak_phase:
-            await run_soak(proxy_url, args.soak_duration, proxy_proc.pid)
+            if not args.skip_docker:
+                container_name = start_container(
+                    image="ghcr.io/pinecone-io/pinecone-index:latest",
+                    name="traceowl-stress-pinecone",
+                    port_mapping=f"{upstream_port}:5080",
+                    env_vars={
+                        "PORT": "5080",
+                        "DIMENSION": str(VECTOR_DIM),
+                        "METRIC": "cosine",
+                        "INDEX_TYPE": "approximated",
+                    },
+                )
 
-        # 5. Validate events
-        # Wait for flush
-        await asyncio.sleep(2)
-        validate_events(output_dir)
+            await wait_for_pinecone(upstream_url)
 
-        # Teardown collection
-        await teardown_qdrant(qdrant_url)
+            config_path = os.path.join(output_dir, "config.toml")
+            with open(config_path, "w") as f:
+                f.write(generate_config_toml(upstream_port, args.proxy_port, output_dir, args.queue_capacity))
+
+            proxy_proc = start_proxy(args.proxy_bin, config_path)
+            await setup_pinecone(upstream_url)
+            await asyncio.sleep(0.5)
+
+            if not args.soak_only:
+                await run_ramp_pinecone(proxy_url)
+            if not args.ramp_only:
+                await run_soak_pinecone(proxy_url, args.soak_duration, proxy_proc.pid)
+
+            await asyncio.sleep(2)
+            validate_events(output_dir)
+            await teardown_pinecone(upstream_url)
 
         print("\nStress test complete.")
 
     finally:
         if proxy_proc is not None:
             stop_proxy(proxy_proc)
-            # Print proxy stderr for diagnostics
             if proxy_proc.stderr:
                 stderr = proxy_proc.stderr.read().decode()
                 if stderr:
@@ -543,7 +697,7 @@ async def main():
                             print(f"    {line}")
 
         if container_name is not None:
-            stop_qdrant_container(container_name)
+            stop_container(container_name)
 
 
 if __name__ == "__main__":
