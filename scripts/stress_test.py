@@ -11,7 +11,8 @@ Phases:
 Prerequisites:
   - Docker (for the VectorDB container)
   - Pre-built proxy binary (cargo build --release)
-  - pip install qdrant-client httpx   (qdrant-client only needed for Qdrant backend)
+  - pip install qdrant-client          (Qdrant backend)
+  - pip install pinecone               (Pinecone backend)
 
 Usage:
   python scripts/stress_test.py                                  # Qdrant, full run
@@ -216,16 +217,20 @@ async def teardown_qdrant(qdrant_url: str):
 # Pinecone helpers
 # ---------------------------------------------------------------------------
 
+def _pinecone_index(host: str):
+    from pinecone import Pinecone
+    pc = Pinecone(api_key="local-test")
+    return pc.Index(host=host)
+
+
 async def wait_for_pinecone(url: str, timeout: float = 30.0):
-    import httpx
     deadline = time.monotonic() + timeout
+    index = _pinecone_index(url)
     while time.monotonic() < deadline:
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{url}/describe_index_stats", timeout=2.0)
-                if resp.status_code < 500:
-                    print("Pinecone is ready")
-                    return
+            await asyncio.to_thread(index.describe_index_stats)
+            print("Pinecone is ready")
+            return
         except Exception:
             pass
         await asyncio.sleep(0.5)
@@ -234,32 +239,26 @@ async def wait_for_pinecone(url: str, timeout: float = 30.0):
 
 
 async def setup_pinecone(pinecone_url: str):
-    import httpx
-
+    index = _pinecone_index(pinecone_url)
     batch_size = 100
-    async with httpx.AsyncClient(base_url=pinecone_url, timeout=30.0) as client:
-        for start in range(0, NUM_SEED_POINTS, batch_size):
-            end = min(start + batch_size, NUM_SEED_POINTS)
-            vectors = [
-                {"id": str(i), "values": random_vector()}
-                for i in range(start, end)
-            ]
-            resp = await client.post(
-                "/vectors/upsert",
-                json={"vectors": vectors, "namespace": PINECONE_NAMESPACE},
-            )
-            resp.raise_for_status()
+    for start in range(0, NUM_SEED_POINTS, batch_size):
+        end = min(start + batch_size, NUM_SEED_POINTS)
+        vectors = [
+            {"id": str(i), "values": random_vector()}
+            for i in range(start, end)
+        ]
+        await asyncio.to_thread(
+            index.upsert, vectors=vectors, namespace=PINECONE_NAMESPACE
+        )
     print(f"Upserted {NUM_SEED_POINTS} vectors into Pinecone namespace '{PINECONE_NAMESPACE}'")
 
 
 async def teardown_pinecone(pinecone_url: str):
-    import httpx
     try:
-        async with httpx.AsyncClient(base_url=pinecone_url, timeout=10.0) as client:
-            await client.post(
-                "/vectors/delete",
-                json={"deleteAll": True, "namespace": PINECONE_NAMESPACE},
-            )
+        index = _pinecone_index(pinecone_url)
+        await asyncio.to_thread(
+            index.delete, delete_all=True, namespace=PINECONE_NAMESPACE
+        )
     except Exception:
         pass
 
@@ -307,11 +306,11 @@ async def run_ramp_qdrant(proxy_url: str):
 
 
 async def run_ramp_pinecone(proxy_url: str):
-    import httpx
-
     print("\n" + "=" * 60)
     print("PHASE 1: Throughput / Latency Ramp-Up (Pinecone)")
     print("=" * 60)
+
+    index = _pinecone_index(proxy_url)
 
     for concurrency in RAMP_CONCURRENCY_LEVELS:
         stats = LatencyStats()
@@ -323,16 +322,12 @@ async def run_ramp_pinecone(proxy_url: str):
             async with semaphore:
                 t0 = time.monotonic()
                 try:
-                    async with httpx.AsyncClient(base_url=proxy_url, timeout=30.0) as client:
-                        resp = await client.post(
-                            "/query",
-                            json={
-                                "vector": random_vector(),
-                                "topK": 10,
-                                "namespace": PINECONE_NAMESPACE,
-                            },
-                        )
-                    resp.raise_for_status()
+                    await asyncio.to_thread(
+                        index.query,
+                        vector=random_vector(),
+                        top_k=10,
+                        namespace=PINECONE_NAMESPACE,
+                    )
                     stats.record((time.monotonic() - t0) * 1000)
                 except Exception as e:
                     stats.record_error()
@@ -402,8 +397,6 @@ async def run_soak_qdrant(proxy_url: str, duration: int, proxy_pid: int):
 
 
 async def run_soak_pinecone(proxy_url: str, duration: int, proxy_pid: int):
-    import httpx
-
     print("\n" + "=" * 60)
     print(f"PHASE 2: Soak Test — Pinecone ({duration}s, concurrency={SOAK_CONCURRENCY})")
     print("=" * 60)
@@ -412,20 +405,15 @@ async def run_soak_pinecone(proxy_url: str, duration: int, proxy_pid: int):
     if rss_start is not None:
         print(f"  Proxy RSS at start: {rss_start} KB")
 
-    semaphore = asyncio.Semaphore(SOAK_CONCURRENCY)
+    index = _pinecone_index(proxy_url)
 
     async def make_query():
-        async with semaphore:
-            async with httpx.AsyncClient(base_url=proxy_url, timeout=30.0) as c:
-                resp = await c.post(
-                    "/query",
-                    json={
-                        "vector": random_vector(),
-                        "topK": 10,
-                        "namespace": PINECONE_NAMESPACE,
-                    },
-                )
-            resp.raise_for_status()
+        await asyncio.to_thread(
+            index.query,
+            vector=random_vector(),
+            top_k=10,
+            namespace=PINECONE_NAMESPACE,
+        )
 
     await _run_soak_loop(make_query, duration, proxy_pid, rss_start)
 
