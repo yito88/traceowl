@@ -62,9 +62,9 @@ mod tests {
 
     #[test]
     fn test_vector_normalization_stable() {
-        // Slightly different f32 values that round to the same 3dp integer
+        // Different f32 values that still round to the same 3dp integers (123, 568)
         let v1 = vec![0.1234_f32, 0.5678_f32];
-        let v2 = vec![0.12340001_f32, 0.56780001_f32];
+        let v2 = vec![0.1233_f32, 0.5677_f32];
         assert_eq!(normalize_query_vector(&v1), normalize_query_vector(&v2));
     }
 
@@ -87,9 +87,9 @@ mod tests {
 
     #[test]
     fn test_hash_stable_across_float_formatting() {
-        // Two vectors differing only in float representation precision
+        // Different f32 values that round to the same 3dp integers (123, 568)
         let repr1 = QueryRepresentation::Vector(vec![0.1234_f32, 0.5678_f32]);
-        let repr2 = QueryRepresentation::Vector(vec![0.12340001_f32, 0.56780001_f32]);
+        let repr2 = QueryRepresentation::Vector(vec![0.1233_f32, 0.5677_f32]);
         let h1 = compute_query_hash("col", None, 10, &repr1);
         let h2 = compute_query_hash("col", None, 10, &repr2);
         assert_eq!(h1, h2);
