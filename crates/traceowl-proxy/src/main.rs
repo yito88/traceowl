@@ -50,10 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timeout(Duration::from_millis(config.upstream_request_timeout_ms))
         .build()?;
 
-    let backends: Vec<Box<dyn backend::BackendHandler>> = vec![
-        Box::new(backend::qdrant::QdrantHandler),
-        Box::new(backend::pinecone::PineconeHandler),
-    ];
+    tracing::info!(backend = ?config.backend, "backend selected");
+    let backends: Vec<Box<dyn backend::BackendHandler>> =
+        vec![backend::build_handler(&config.backend)];
 
     let state = AppState {
         client,

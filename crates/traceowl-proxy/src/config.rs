@@ -2,10 +2,18 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BackendKind {
+    Qdrant,
+    Pinecone,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     #[serde(default = "default_listen_addr")]
     pub listen_addr: SocketAddr,
+    pub backend: BackendKind,
     pub upstream_base_url: String,
     #[serde(default = "default_sampling_rate")]
     pub sampling_rate: f64,

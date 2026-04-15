@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::time::sleep;
 use traceowl_proxy::backend;
-use traceowl_proxy::config::Config;
+use traceowl_proxy::config::{BackendKind, Config};
 use traceowl_proxy::proxy::AppState;
 use traceowl_proxy::queue::EventQueue;
 use traceowl_proxy::sink;
@@ -59,6 +59,7 @@ async fn start_proxy(
     timeout_ms: u64,
 ) -> (SocketAddr, tokio_util::sync::CancellationToken) {
     let config = Config {
+        backend: BackendKind::Qdrant,
         listen_addr: "127.0.0.1:0".parse().unwrap(),
         upstream_base_url: format!("http://{}", upstream_addr),
         sampling_rate,
@@ -86,7 +87,7 @@ async fn start_proxy(
         .unwrap();
 
     let backends: Vec<Box<dyn backend::BackendHandler>> =
-        vec![Box::new(backend::qdrant::QdrantHandler)];
+        vec![backend::build_handler(&config.backend)];
 
     let state = AppState {
         client,

@@ -4,7 +4,16 @@ pub mod qdrant;
 
 use http::Method;
 
+use crate::config::BackendKind;
 use crate::events::{DbInfo, HitInfo, QueryInfo};
+
+/// Instantiate the backend handler for the given kind.
+pub fn build_handler(kind: &BackendKind) -> Box<dyn BackendHandler> {
+    match kind {
+        BackendKind::Qdrant => Box::new(qdrant::QdrantHandler),
+        BackendKind::Pinecone => Box::new(pinecone::PineconeHandler),
+    }
+}
 
 /// Metadata extracted when a backend matches a request.
 pub struct RequestMatch {

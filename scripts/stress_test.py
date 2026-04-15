@@ -80,6 +80,7 @@ def random_vector() -> list:
 
 
 def generate_config_toml(
+    backend: str,
     upstream_port: int,
     proxy_port: int,
     output_dir: str,
@@ -87,6 +88,7 @@ def generate_config_toml(
     upstream_host: str = "localhost",
 ) -> str:
     return f"""\
+backend = "{backend}"
 upstream_base_url = "http://{upstream_host}:{upstream_port}"
 listen_addr = "127.0.0.1:{proxy_port}"
 sampling_rate = 0.3
@@ -631,7 +633,7 @@ async def main():
 
             config_path = os.path.join(output_dir, "config.toml")
             with open(config_path, "w") as f:
-                f.write(generate_config_toml(upstream_port, args.proxy_port, output_dir, args.queue_capacity))
+                f.write(generate_config_toml("qdrant", upstream_port, args.proxy_port, output_dir, args.queue_capacity))
 
             proxy_proc = start_proxy(args.proxy_bin, config_path)
             await setup_qdrant(upstream_url)
@@ -667,7 +669,7 @@ async def main():
 
             config_path = os.path.join(output_dir, "config.toml")
             with open(config_path, "w") as f:
-                f.write(generate_config_toml(upstream_port, args.proxy_port, output_dir, args.queue_capacity))
+                f.write(generate_config_toml("pinecone", upstream_port, args.proxy_port, output_dir, args.queue_capacity))
 
             proxy_proc = start_proxy(args.proxy_bin, config_path)
             await setup_pinecone(upstream_url)

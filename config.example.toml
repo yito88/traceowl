@@ -1,9 +1,12 @@
 # traceowl-proxy configuration
 
+# VectorDB backend to proxy ("qdrant" or "pinecone")
+backend = "qdrant"
+
 # Address to listen on
 listen_addr = "0.0.0.0:6333"
 
-# Upstream VectorDB URL (Qdrant in this example)
+# Upstream VectorDB URL
 upstream_base_url = "http://localhost:6334"
 
 # Fraction of requests to sample (0.0 to 1.0)
