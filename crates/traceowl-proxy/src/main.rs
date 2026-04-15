@@ -51,14 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     tracing::info!(backend = ?config.backend, "backend selected");
-    let backends: Vec<Box<dyn backend::BackendHandler>> =
-        vec![backend::build_handler(&config.backend)];
 
     let state = AppState {
         client,
         config: Arc::new(config.clone()),
         event_queue,
-        backends: Arc::new(backends),
+        backend: Arc::new(backend::build_handler(&config.backend)),
     };
 
     let app = Router::new()

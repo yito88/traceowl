@@ -114,14 +114,11 @@ async fn start_proxy(
         .build()
         .unwrap();
 
-    let backends: Vec<Box<dyn backend::BackendHandler>> =
-        vec![backend::build_handler(&config.backend)];
-
     let state = AppState {
         client,
-        config: Arc::new(config),
+        config: Arc::new(config.clone()),
         event_queue,
-        backends: Arc::new(backends),
+        backend: Arc::new(backend::build_handler(&config.backend)),
     };
 
     let app = Router::new()

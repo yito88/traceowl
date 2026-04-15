@@ -21,7 +21,7 @@ pub struct AppState {
     pub client: Client,
     pub config: Arc<Config>,
     pub event_queue: Arc<EventQueue>,
-    pub backends: Arc<Vec<Box<dyn BackendHandler>>>,
+    pub backend: Arc<Box<dyn BackendHandler>>,
 }
 
 pub async fn forward_handler(
@@ -33,10 +33,7 @@ pub async fn forward_handler(
 ) -> Response {
     let path = uri.path();
 
-    let matched = state
-        .backends
-        .iter()
-        .find_map(|b| b.match_request(&method, path));
+    let matched = state.backend.match_request(&method, path);
 
     match matched {
         Some(request_match) => handle_instrumented(state, request_match, uri, headers, body).await,
@@ -147,16 +144,7 @@ async fn handle_instrumented(
     if sampled {
         let request_id_str = request_id.to_string();
 
-        let backend = state
-            .backends
-            .iter()
-            .find(|b| {
-                b.match_request(&http::Method::POST, request_match.path())
-                    .is_some()
-            })
-            .unwrap();
-
-        let mut request_meta = backend.parse_request(&request_match, &body);
+        let mut request_meta = state.backend.parse_request(&request_match, &body);
         if !state.config.include_query_representation {
             request_meta.query.representation = None;
         }
@@ -180,7 +168,8 @@ async fn handle_instrumented(
 
         let hits = match resp_body_copy {
             Some(ref resp_body) => {
-                backend
+                state
+                    .backend
                     .parse_response(&request_match, http_status, resp_body)
                     .hits
             }
