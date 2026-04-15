@@ -35,10 +35,7 @@ impl BackendHandler for PineconeHandler {
         match parsed {
             Ok(body_json) => {
                 let top_k = body_json["topK"].as_u64().unwrap_or(10);
-                let namespace = body_json["namespace"]
-                    .as_str()
-                    .unwrap_or("")
-                    .to_string();
+                let namespace = body_json["namespace"].as_str().unwrap_or("").to_string();
 
                 match extract_dense_vector(&body_json) {
                     Some(vec) => {
@@ -110,10 +107,7 @@ fn parse_pinecone_hits(body: &[u8]) -> Vec<HitInfo> {
         && let Some(matches) = json["matches"].as_array()
     {
         for (rank, m) in matches.iter().enumerate() {
-            let doc_id = m["id"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string();
+            let doc_id = m["id"].as_str().unwrap_or_default().to_string();
             let score = m["score"].as_f64().unwrap_or(0.0);
             hits.push(HitInfo {
                 doc_id,
@@ -156,7 +150,11 @@ mod tests {
     #[test]
     fn test_no_match_other_path() {
         let handler = PineconeHandler;
-        assert!(handler.match_request(&Method::POST, "/vectors/upsert").is_none());
+        assert!(
+            handler
+                .match_request(&Method::POST, "/vectors/upsert")
+                .is_none()
+        );
     }
 
     #[test]
@@ -241,9 +239,7 @@ mod tests {
         // Verify that a complete Pinecone request produces all fields
         // needed to build a request event.
         let handler = PineconeHandler;
-        let matched = handler
-            .match_request(&Method::POST, "/query")
-            .unwrap();
+        let matched = handler.match_request(&Method::POST, "/query").unwrap();
         assert_eq!(matched.db_kind, "pinecone");
 
         let body = br#"{
