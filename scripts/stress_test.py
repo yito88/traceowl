@@ -33,6 +33,7 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -132,13 +133,57 @@ def start_proxy(proxy_bin: str, config_path: str) -> subprocess.Popen:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    time.sleep(0.5)
+    # Brief pause then check the process didn't immediately crash.
+    time.sleep(0.2)
     if proc.poll() is not None:
         stderr = proc.stderr.read().decode() if proc.stderr else ""
         print(f"Proxy failed to start: {stderr}", file=sys.stderr)
         sys.exit(1)
     print(f"Started proxy (pid={proc.pid})")
     return proc
+
+
+def wait_for_proxy(proxy_url: str, timeout: float = 10.0):
+    """Poll /control/status until the proxy is accepting connections."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(f"{proxy_url}/control/status", timeout=1) as resp:
+                if resp.status == 200:
+                    return
+        except Exception:
+            pass
+        time.sleep(0.2)
+    print("Proxy did not become ready in time", file=sys.stderr)
+    sys.exit(1)
+
+
+def start_tracing(proxy_url: str) -> str:
+    """Start a tracing session on the proxy (uses config's sampling_rate)."""
+    req = urllib.request.Request(
+        f"{proxy_url}/control/tracing/start",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        body = json.loads(resp.read())
+    session_id = body["session_id"]
+    print(f"Tracing started (session={session_id})")
+    return session_id
+
+
+def stop_tracing(proxy_url: str):
+    """Stop the tracing session and flush all buffered events to disk."""
+    req = urllib.request.Request(
+        f"{proxy_url}/control/tracing/stop",
+        data=b"",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        body = json.loads(resp.read())
+    print(f"Tracing stopped (dropped_events={body.get('dropped_events', 0)})")
 
 
 def stop_proxy(proc: subprocess.Popen):
@@ -624,15 +669,16 @@ async def main():
                 f.write(generate_config_toml("qdrant", upstream_port, args.proxy_port, output_dir, args.queue_capacity))
 
             proxy_proc = start_proxy(args.proxy_bin, config_path)
+            wait_for_proxy(proxy_url)
             await setup_qdrant(upstream_url)
-            await asyncio.sleep(0.5)
+            start_tracing(proxy_url)
 
             if not args.soak_only:
                 await run_ramp_qdrant(proxy_url)
             if not args.ramp_only:
                 await run_soak_qdrant(proxy_url, args.soak_duration, proxy_proc.pid)
 
-            await asyncio.sleep(2)
+            stop_tracing(proxy_url)
             validate_events(output_dir)
             await teardown_qdrant(upstream_url)
 
@@ -660,15 +706,16 @@ async def main():
                 f.write(generate_config_toml("pinecone", upstream_port, args.proxy_port, output_dir, args.queue_capacity))
 
             proxy_proc = start_proxy(args.proxy_bin, config_path)
+            wait_for_proxy(proxy_url)
             await setup_pinecone(upstream_url)
-            await asyncio.sleep(0.5)
+            start_tracing(proxy_url)
 
             if not args.soak_only:
                 await run_ramp_pinecone(proxy_url)
             if not args.ramp_only:
                 await run_soak_pinecone(proxy_url, args.soak_duration, proxy_proc.pid)
 
-            await asyncio.sleep(2)
+            stop_tracing(proxy_url)
             validate_events(output_dir)
             await teardown_pinecone(upstream_url)
 

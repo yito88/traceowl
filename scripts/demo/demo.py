@@ -166,6 +166,7 @@ def wait_for_port(host: str, port: int, timeout: int = 10) -> None:
 def write_proxy_config(path: Path, listen_addr: str, upstream_url: str, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     config = f"""\
+backend = "qdrant"
 listen_addr = "{listen_addr}"
 upstream_base_url = "{upstream_url}"
 sampling_rate = 1.0
@@ -194,6 +195,31 @@ def stop_proxy(proc: subprocess.Popen) -> None:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def start_tracing(proxy_url: str) -> None:
+    """Start a tracing session (sampling_rate taken from proxy config)."""
+    req = urllib.request.Request(
+        f"{proxy_url}/control/tracing/start",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        body = json.loads(resp.read())
+    print(f"  Tracing started (session={body['session_id']})")
+
+
+def stop_tracing(proxy_url: str) -> None:
+    """Stop the tracing session and flush buffered events to disk."""
+    req = urllib.request.Request(
+        f"{proxy_url}/control/tracing/stop",
+        data=b"",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10):
+        pass
 
 
 def send_queries(proxy_url: str, queries: List[Dict], profile: Dict,
@@ -292,10 +318,11 @@ def main() -> None:
 
         proxy_proc = start_proxy(proxy_bin, cfg_path)
         wait_for_port("127.0.0.1", args.proxy_port)
+        start_tracing(proxy_url)
         send_queries(proxy_url, QUERIES, baseline_profile, args.vector_size, args.top_k)
+        stop_tracing(proxy_url)
         stop_proxy(proxy_proc)
         proxy_proc = None
-        time.sleep(1)  # allow final flush to complete
         print(f"  Baseline events written to: {baseline_events_dir}")
 
         # ------------------------------------------------------------------
@@ -314,12 +341,13 @@ def main() -> None:
 
         proxy_proc = start_proxy(proxy_bin, cfg_path)
         wait_for_port("127.0.0.1", args.proxy_port)
+        start_tracing(proxy_url)
         # Use baseline profile for query embedding so vectors are identical
         # -> proxy produces the same hashes -> traceowl-diff can match them
         send_queries(proxy_url, QUERIES, baseline_profile, args.vector_size, args.top_k)
+        stop_tracing(proxy_url)
         stop_proxy(proxy_proc)
         proxy_proc = None
-        time.sleep(1)  # allow final flush to complete
         print(f"  Candidate events written to: {candidate_events_dir}")
 
         # ------------------------------------------------------------------
