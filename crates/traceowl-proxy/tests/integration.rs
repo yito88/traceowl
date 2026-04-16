@@ -2,21 +2,24 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::StatusCode;
 use axum::response::Response;
-use axum::routing::post;
+use axum::routing::{get, post};
 use bytes::Bytes;
 use reqwest::Client;
 use serde_json::Value;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use traceowl_proxy::backend;
 use traceowl_proxy::config::{BackendKind, Config};
+use traceowl_proxy::control::{TracingGate, TracingSession};
 use traceowl_proxy::proxy::AppState;
 use traceowl_proxy::queue::EventQueue;
-use traceowl_proxy::sink;
+use traceowl_proxy::sink::{self, SinkCommand};
 
 /// Start a mock upstream Qdrant server that returns a fixed response.
 async fn start_mock_upstream(
@@ -50,7 +53,8 @@ async fn start_mock_upstream(
     addr
 }
 
-/// Start the proxy pointing at the given upstream, return (proxy_addr, output_dir, cancel_token).
+/// Start the proxy pointing at the given upstream, return (proxy_addr, cancel_token).
+/// Automatically starts a tracing session so events are emitted.
 async fn start_proxy(
     upstream_addr: SocketAddr,
     output_dir: PathBuf,
@@ -66,7 +70,7 @@ async fn start_proxy(
         queue_capacity,
         output_dir: output_dir.clone(),
         rotation_max_bytes: 50 * 1024 * 1024,
-        flush_interval_ms: 100, // Fast flush for tests
+        flush_interval_ms: 100,
         flush_max_events: 1000,
         upstream_request_timeout_ms: timeout_ms,
         include_query_representation: true,
@@ -78,8 +82,21 @@ async fn start_proxy(
     let (event_queue, rx) = EventQueue::new(config.queue_capacity);
     let event_queue = Arc::new(event_queue);
 
+    let tracing_gate = Arc::new(TracingGate::new(config.sampling_rate));
+    let tracing_session = Arc::new(tokio::sync::Mutex::new(TracingSession::new()));
+    let (sink_ctl_tx, sink_ctl_rx) = mpsc::channel::<SinkCommand>(8);
+    let last_flush_at = Arc::new(AtomicU64::new(0));
+    let writer_alive = Arc::new(AtomicBool::new(true));
+
     let writer_cancel = cancel_token.clone();
-    tokio::spawn(sink::writer_task(rx, config.clone(), writer_cancel));
+    tokio::spawn(sink::writer_task(
+        rx,
+        sink_ctl_rx,
+        config.clone(),
+        last_flush_at.clone(),
+        writer_alive.clone(),
+        writer_cancel,
+    ));
 
     let client = Client::builder()
         .timeout(Duration::from_millis(config.upstream_request_timeout_ms))
@@ -91,9 +108,26 @@ async fn start_proxy(
         config: Arc::new(config.clone()),
         event_queue,
         backend: Arc::new(backend::build_handler(&config.backend)),
+        tracing_gate: tracing_gate.clone(),
+        tracing_session,
+        sink_ctl: sink_ctl_tx.clone(),
+        last_flush_at,
+        writer_alive,
     };
 
     let app = Router::new()
+        .route(
+            "/control/status",
+            get(traceowl_proxy::control::status_handler),
+        )
+        .route(
+            "/control/tracing/start",
+            post(traceowl_proxy::control::start_handler),
+        )
+        .route(
+            "/control/tracing/stop",
+            post(traceowl_proxy::control::stop_handler),
+        )
         .fallback(traceowl_proxy::proxy::forward_handler)
         .with_state(state);
 
@@ -107,6 +141,18 @@ async fn start_proxy(
             .await
             .unwrap();
     });
+
+    // Auto-start a tracing session so existing tests continue to emit events.
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    sink_ctl_tx
+        .send(SinkCommand::Rotate {
+            session_id: "test-session".to_string(),
+            reply: reply_tx,
+        })
+        .await
+        .unwrap();
+    let _ = reply_rx.await.unwrap();
+    tracing_gate.enabled.store(true, Ordering::Relaxed);
 
     (addr, cancel_token)
 }

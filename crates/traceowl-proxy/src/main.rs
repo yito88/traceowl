@@ -1,5 +1,6 @@
 mod backend;
 mod config;
+mod control;
 mod events;
 mod health;
 mod proxy;
@@ -9,11 +10,15 @@ mod shutdown;
 mod sink;
 
 use axum::Router;
+use axum::routing::{get, post};
 use reqwest::Client;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 use crate::config::Config;
+use crate::control::{TracingGate, TracingSession};
 use crate::proxy::AppState;
 
 #[tokio::main]
@@ -30,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "config.toml".to_string());
 
     let config = Config::load(&config_path)?;
-    tracing::info!(listen = %config.listen_addr, upstream = %config.upstream_base_url, "starting traceowl-proxy");
+    tracing::info!(listen = %config.listen_addr, upstream = %config.upstream_base_url, backend = ?config.backend, "starting traceowl-proxy");
 
     std::fs::create_dir_all(&config.output_dir)?;
 
@@ -39,7 +44,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (event_queue, rx) = queue::EventQueue::new(config.queue_capacity);
     let event_queue = Arc::new(event_queue);
 
-    let writer_handle = tokio::spawn(sink::writer_task(rx, config.clone(), cancel_token.clone()));
+    let (sink_ctl_tx, sink_ctl_rx) = mpsc::channel::<sink::SinkCommand>(8);
+    let last_flush_at = Arc::new(AtomicU64::new(0));
+    let writer_alive = Arc::new(AtomicBool::new(true));
+
+    let writer_handle = tokio::spawn(sink::writer_task(
+        rx,
+        sink_ctl_rx,
+        config.clone(),
+        last_flush_at.clone(),
+        writer_alive.clone(),
+        cancel_token.clone(),
+    ));
 
     tokio::spawn(health::health_loop(
         event_queue.clone(),
@@ -54,12 +70,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         client,
+        backend: Arc::new(backend::build_handler(&config.backend)),
         config: Arc::new(config.clone()),
         event_queue,
-        backend: Arc::new(backend::build_handler(&config.backend)),
+        tracing_gate: Arc::new(TracingGate::new(config.sampling_rate)),
+        tracing_session: Arc::new(tokio::sync::Mutex::new(TracingSession::new())),
+        sink_ctl: sink_ctl_tx,
+        last_flush_at,
+        writer_alive,
     };
 
     let app = Router::new()
+        .route("/control/status", get(control::status_handler))
+        .route("/control/tracing/start", post(control::start_handler))
+        .route("/control/tracing/stop", post(control::stop_handler))
         .fallback(proxy::forward_handler)
         .with_state(state);
 

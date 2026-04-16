@@ -1,17 +1,21 @@
 use axum::Router;
+use axum::routing::{get, post};
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use traceowl_proxy::backend;
 use traceowl_proxy::config::{BackendKind, Config};
+use traceowl_proxy::control::{TracingGate, TracingSession};
 use traceowl_proxy::proxy::AppState;
 use traceowl_proxy::queue::EventQueue;
-use traceowl_proxy::sink;
+use traceowl_proxy::sink::{self, SinkCommand};
 
 fn pinecone_url() -> String {
     std::env::var("PINECONE_URL").unwrap_or_else(|_| "http://localhost:5080".to_string())
@@ -66,7 +70,7 @@ async fn start_proxy(
         backend: BackendKind::Pinecone,
         listen_addr: "127.0.0.1:0".parse().unwrap(),
         upstream_base_url: upstream_url.to_string(),
-        sampling_rate: 1.0, // sample everything
+        sampling_rate: 1.0,
         queue_capacity: 8192,
         output_dir,
         rotation_max_bytes: 50 * 1024 * 1024,
@@ -82,8 +86,21 @@ async fn start_proxy(
     let (event_queue, rx) = EventQueue::new(config.queue_capacity);
     let event_queue = Arc::new(event_queue);
 
+    let tracing_gate = Arc::new(TracingGate::new(config.sampling_rate));
+    let tracing_session = Arc::new(tokio::sync::Mutex::new(TracingSession::new()));
+    let (sink_ctl_tx, sink_ctl_rx) = mpsc::channel::<SinkCommand>(8);
+    let last_flush_at = Arc::new(AtomicU64::new(0));
+    let writer_alive = Arc::new(AtomicBool::new(true));
+
     let writer_cancel = cancel_token.clone();
-    tokio::spawn(sink::writer_task(rx, config.clone(), writer_cancel));
+    tokio::spawn(sink::writer_task(
+        rx,
+        sink_ctl_rx,
+        config.clone(),
+        last_flush_at.clone(),
+        writer_alive.clone(),
+        writer_cancel,
+    ));
 
     let client = Client::builder()
         .timeout(Duration::from_millis(config.upstream_request_timeout_ms))
@@ -95,9 +112,26 @@ async fn start_proxy(
         config: Arc::new(config.clone()),
         event_queue,
         backend: Arc::new(backend::build_handler(&config.backend)),
+        tracing_gate: tracing_gate.clone(),
+        tracing_session,
+        sink_ctl: sink_ctl_tx.clone(),
+        last_flush_at,
+        writer_alive,
     };
 
     let app = Router::new()
+        .route(
+            "/control/status",
+            get(traceowl_proxy::control::status_handler),
+        )
+        .route(
+            "/control/tracing/start",
+            post(traceowl_proxy::control::start_handler),
+        )
+        .route(
+            "/control/tracing/stop",
+            post(traceowl_proxy::control::stop_handler),
+        )
         .fallback(traceowl_proxy::proxy::forward_handler)
         .with_state(state);
 
@@ -111,6 +145,18 @@ async fn start_proxy(
             .await
             .unwrap();
     });
+
+    // Auto-start a tracing session so tests emit events.
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    sink_ctl_tx
+        .send(SinkCommand::Rotate {
+            session_id: "test-session".to_string(),
+            reply: reply_tx,
+        })
+        .await
+        .unwrap();
+    let _ = reply_rx.await.unwrap();
+    tracing_gate.enabled.store(true, Ordering::Relaxed);
 
     (addr, cancel_token)
 }
@@ -184,10 +230,7 @@ async fn test_successful_query() {
         .find(|e| e["event_type"] == "response")
         .expect("missing response event");
 
-    // Same request_id
     assert_eq!(req_event["request_id"], resp_event["request_id"]);
-
-    // Request event
     assert_eq!(req_event["schema_version"], 1);
     assert_eq!(req_event["sampled"], true);
     assert_eq!(req_event["unsupported_shape"], false);
@@ -196,7 +239,6 @@ async fn test_successful_query() {
     assert_eq!(req_event["query"]["top_k"], 3);
     assert!(!req_event["query"]["hash"].as_str().unwrap().is_empty());
 
-    // Response event
     assert_eq!(resp_event["status"]["ok"], true);
     assert_eq!(resp_event["status"]["http_status"], 200);
     assert!(resp_event["status"]["error_kind"].is_null());
@@ -246,7 +288,6 @@ async fn test_query_with_empty_namespace() {
         .find(|e| e["event_type"] == "request")
         .expect("missing request event");
 
-    // Without a namespace, collection should be empty string
     assert_eq!(req_event["db"]["kind"], "pinecone");
     assert_eq!(req_event["db"]["collection"], "");
     assert!(!req_event["query"]["hash"].as_str().unwrap().is_empty());
@@ -257,7 +298,7 @@ async fn test_query_with_empty_namespace() {
 async fn test_upstream_unreachable() {
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(
-        "http://127.0.0.1:19998", // nothing listening here
+        "http://127.0.0.1:19998",
         tmp.path().to_path_buf(),
         2000,
     )

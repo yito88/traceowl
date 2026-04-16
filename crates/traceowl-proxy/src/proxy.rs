@@ -7,11 +7,14 @@ use http::StatusCode;
 use http::header::{ACCEPT_ENCODING, CONTENT_LENGTH, HOST, TRANSFER_ENCODING};
 use reqwest::Client;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::time::Instant;
 use uuid::Uuid;
 
 use crate::backend::BackendHandler;
 use crate::config::Config;
+use crate::control::{TracingGate, TracingSession};
+use crate::sink::SinkControlSender;
 use crate::events::*;
 use crate::queue::EventQueue;
 use crate::sampling;
@@ -22,6 +25,16 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub event_queue: Arc<EventQueue>,
     pub backend: Arc<Box<dyn BackendHandler>>,
+    /// Lock-free gate: checked on every proxied request.
+    pub tracing_gate: Arc<TracingGate>,
+    /// Session metadata: only read/written by control handlers.
+    pub tracing_session: Arc<tokio::sync::Mutex<TracingSession>>,
+    /// Channel to send commands (Rotate, Flush) to the writer task.
+    pub sink_ctl: SinkControlSender,
+    /// Last flush timestamp (ms); updated by the writer task after each flush.
+    pub last_flush_at: Arc<AtomicU64>,
+    /// Set to false by the writer task on exit.
+    pub writer_alive: Arc<AtomicBool>,
 }
 
 pub async fn forward_handler(
@@ -137,9 +150,14 @@ async fn handle_instrumented(
         }
     };
 
-    // Inline: sampling decision, parsing, event building, non-blocking queue send
+    // Gate: skip all event emission if tracing is not active.
+    if !state.tracing_gate.is_enabled() {
+        return http_response;
+    }
+
+    let rate = state.tracing_gate.sampling_rate();
     let request_id = Uuid::now_v7();
-    let sampled = is_error || sampling::is_sampled(&request_id, state.config.sampling_rate);
+    let sampled = is_error || sampling::is_sampled(&request_id, rate);
 
     if sampled {
         let request_id_str = request_id.to_string();
