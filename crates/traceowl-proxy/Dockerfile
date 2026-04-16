@@ -17,12 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-RUN mkdir -p /data/output /etc/traceowl
-
 COPY --from=builder /src/target/release/traceowl-proxy /usr/local/bin/traceowl-proxy
 
 RUN chmod +x /usr/local/bin/traceowl-proxy
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/bin/tini", "--", "traceowl-proxy", "/etc/traceowl/config.toml"]
+ENTRYPOINT ["/usr/bin/tini", "--", "traceowl-proxy"]
