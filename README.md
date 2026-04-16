@@ -74,6 +74,119 @@ Client → Proxy → VectorDB
 
 ---
 
+## Usage
+
+### Prerequisites
+
+- Rust toolchain (1.80+) — [rustup.rs](https://rustup.rs)
+- A running VectorDB (Qdrant or Pinecone-compatible)
+
+---
+
+### Build binaries
+
+```bash
+# Build both binaries from the workspace root
+cargo build --release -p traceowl-proxy -p traceowl-diff
+
+# Binaries land at:
+#   target/release/traceowl-proxy
+#   target/release/traceowl-diff
+```
+
+---
+
+### Build Docker image
+
+```bash
+docker build -t traceowl-proxy:latest .
+```
+
+---
+
+### Run traceowl-proxy
+
+**1. Create a config file**
+
+Copy the example and edit to match your setup:
+
+```bash
+cp config.example.toml config.toml
+```
+
+Key fields:
+
+```toml
+backend = "qdrant"                        # "qdrant" or "pinecone"
+listen_addr = "0.0.0.0:6333"             # port your clients connect to
+upstream_base_url = "http://localhost:6334"  # your real VectorDB
+sampling_rate = 0.1                       # fraction of requests to record
+output_dir = "./events"                   # where JSONL files are written
+```
+
+**2a. Run the binary**
+
+```bash
+./target/release/traceowl-proxy config.toml
+```
+
+**2b. Run with Docker**
+
+```bash
+docker run -d \
+  -p 6333:6333 \
+  -v $(pwd)/config.toml:/config.toml \
+  -v $(pwd)/events:/events \
+  traceowl-proxy:latest /config.toml
+```
+
+**3. Start a tracing session**
+
+Tracing is off by default. Start it when you want to capture events:
+
+```bash
+curl -s -X POST http://localhost:6333/control/tracing/start \
+  -H 'Content-Type: application/json' \
+  -d '{"sampling_rate": 0.1}' | jq .
+```
+
+Point your application at the proxy instead of the VectorDB directly and run
+your queries as normal. The proxy forwards all traffic transparently.
+
+**4. Stop tracing and flush events**
+
+```bash
+curl -s -X POST http://localhost:6333/control/tracing/stop | jq .
+```
+
+This flushes any buffered events to disk before returning. Event files appear
+in `output_dir` as `events-<session-id>-<seq>.jsonl`.
+
+**Check status at any time**
+
+```bash
+curl -s http://localhost:6333/control/status | jq .
+```
+
+---
+
+### Run traceowl-diff
+
+Compare two sets of event files (e.g. before and after an embedding change):
+
+```bash
+./target/release/traceowl-diff \
+  --baseline events/baseline/events-*.jsonl \
+  --candidate events/candidate/events-*.jsonl \
+  --output diff.jsonl
+```
+
+The output `diff.jsonl` contains one record per matched query hash showing what
+changed between the two retrieval runs. Feed it into traceowl-analyzer to
+generate an HTML report.
+
+---
+
 ## Quickstart (conceptual)
 
 1. Run `traceowl-proxy`
