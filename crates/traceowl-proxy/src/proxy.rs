@@ -48,20 +48,21 @@ pub async fn forward_handler(
 
     let matched = state.backend.match_request(&method, path);
 
-    match matched {
-        Some(request_match) => handle_instrumented(state, request_match, uri, headers, body).await,
-        None => {
-            forward_raw(
-                &state.client,
-                &state.config.upstream_base_url,
-                &method,
-                &uri,
-                headers,
-                body,
-            )
-            .await
-        }
+    if state.tracing_gate.is_enabled()
+        && let Some(request_match) = matched
+    {
+        return handle_instrumented(state, request_match, uri, headers, body).await;
     }
+
+    forward_raw(
+        &state.client,
+        &state.config.upstream_base_url,
+        &method,
+        &uri,
+        headers,
+        body,
+    )
+    .await
 }
 
 async fn handle_instrumented(
@@ -149,11 +150,6 @@ async fn handle_instrumented(
             )
         }
     };
-
-    // Gate: skip all event emission if tracing is not active.
-    if !state.tracing_gate.is_enabled() {
-        return http_response;
-    }
 
     let rate = state.tracing_gate.sampling_rate();
     let request_id = Uuid::now_v7();
