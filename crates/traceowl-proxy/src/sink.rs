@@ -46,8 +46,7 @@ pub async fn writer_task(
     let mut current_size: u64 = 0;
     let mut file_counter: u32 = 0;
     let mut session_id: Option<String> = None;
-    let mut flush_interval =
-        tokio::time::interval(Duration::from_millis(config.flush_interval_ms));
+    let mut flush_interval = tokio::time::interval(Duration::from_millis(config.flush_interval_ms));
     let mut total_flushed: u64 = 0;
 
     tracing::info!("writer task started, waiting for tracing session");

@@ -14,10 +14,10 @@ use uuid::Uuid;
 use crate::backend::BackendHandler;
 use crate::config::Config;
 use crate::control::{TracingGate, TracingSession};
-use crate::sink::SinkControlSender;
 use crate::events::*;
 use crate::queue::EventQueue;
 use crate::sampling;
+use crate::sink::SinkControlSender;
 
 #[derive(Clone)]
 pub struct AppState {

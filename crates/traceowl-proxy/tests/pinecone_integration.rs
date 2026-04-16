@@ -297,12 +297,8 @@ async fn test_query_with_empty_namespace() {
 #[ignore]
 async fn test_upstream_unreachable() {
     let tmp = tempfile::tempdir().unwrap();
-    let (proxy_addr, cancel) = start_proxy(
-        "http://127.0.0.1:19998",
-        tmp.path().to_path_buf(),
-        2000,
-    )
-    .await;
+    let (proxy_addr, cancel) =
+        start_proxy("http://127.0.0.1:19998", tmp.path().to_path_buf(), 2000).await;
 
     let client = Client::builder()
         .timeout(Duration::from_secs(10))

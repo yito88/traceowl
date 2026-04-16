@@ -178,8 +178,7 @@ fn dense_query_body() -> Value {
 
 #[tokio::test]
 async fn test_startup_is_idle() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -203,8 +202,7 @@ async fn test_startup_is_idle() {
 
 #[tokio::test]
 async fn test_start_creates_session() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -240,8 +238,7 @@ async fn test_start_creates_session() {
 
 #[tokio::test]
 async fn test_start_conflict() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -273,8 +270,7 @@ async fn test_start_conflict() {
 
 #[tokio::test]
 async fn test_stop_success() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -317,8 +313,7 @@ async fn test_stop_success() {
 
 #[tokio::test]
 async fn test_stop_idle_noop() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -339,8 +334,7 @@ async fn test_stop_idle_noop() {
 
 #[tokio::test]
 async fn test_tracing_off_no_events() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -367,8 +361,7 @@ async fn test_tracing_off_no_events() {
 
 #[tokio::test]
 async fn test_tracing_on_emits_events() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -428,8 +421,7 @@ async fn test_tracing_on_emits_events() {
 
 #[tokio::test]
 async fn test_session_rotation() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     let (proxy_addr, cancel) = start_proxy(upstream_addr, tmp.path().to_path_buf()).await;
 
@@ -475,8 +467,7 @@ async fn test_session_rotation() {
 
 #[tokio::test]
 async fn test_flush_on_stop() {
-    let upstream_addr =
-        start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
+    let upstream_addr = start_mock_upstream(qdrant_success_response(), StatusCode::OK).await;
     let tmp = tempfile::tempdir().unwrap();
     // Use a long flush interval so events won't auto-flush during the test
     let config = traceowl_proxy::config::Config {
