@@ -1,0 +1,50 @@
+name: S3 Integration Tests
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  s3-integration:
+    name: S3 Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:9000/minio/health/ready; then
+              echo "MinIO ready"
+              break
+            fi
+            echo "Waiting for MinIO ($i)..."
+            sleep 1
+          done
+
+      - name: Create test bucket
+        run: |
+          docker run --rm --network host \
+            --entrypoint sh minio/mc \
+            -c "mc alias set local http://localhost:9000 minioadmin minioadmin && mc mb local/traceowl-test"
+
+      - name: Run S3 integration tests
+        run: cargo test -p traceowl-proxy --test s3_integration -- --include-ignored
+        env:
+          MINIO_URL: http://localhost:9000
+          MINIO_ACCESS_KEY: minioadmin
+          MINIO_SECRET_KEY: minioadmin
+          MINIO_BUCKET: traceowl-test
