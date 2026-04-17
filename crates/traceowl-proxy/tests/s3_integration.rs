@@ -229,11 +229,7 @@ async fn list_objects(client: &aws_sdk_s3::Client, bucket: &str, prefix: &str) -
         .collect()
 }
 
-async fn get_object_string(
-    client: &aws_sdk_s3::Client,
-    bucket: &str,
-    key: &str,
-) -> String {
+async fn get_object_string(client: &aws_sdk_s3::Client, bucket: &str, key: &str) -> String {
     let resp = client
         .get_object()
         .bucket(bucket)
@@ -248,12 +244,7 @@ async fn get_object_string(
 async fn delete_prefix(client: &aws_sdk_s3::Client, bucket: &str, prefix: &str) {
     let keys = list_objects(client, bucket, prefix).await;
     for key in keys {
-        let _ = client
-            .delete_object()
-            .bucket(bucket)
-            .key(&key)
-            .send()
-            .await;
+        let _ = client.delete_object().bucket(bucket).key(&key).send().await;
     }
 }
 
@@ -272,7 +263,8 @@ async fn test_upload_session_files_to_minio() {
 
     let tmp = tempfile::tempdir().unwrap();
     let upstream = start_mock_upstream().await;
-    let (proxy_addr, cancel) = start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
+    let (proxy_addr, cancel) =
+        start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
 
     let client = Client::new();
 
@@ -326,7 +318,11 @@ async fn test_upload_session_files_to_minio() {
     );
 
     let has_jsonl = objects.iter().any(|k| k.ends_with(".jsonl"));
-    assert!(has_jsonl, "expected at least one .jsonl file in MinIO: {:?}", objects);
+    assert!(
+        has_jsonl,
+        "expected at least one .jsonl file in MinIO: {:?}",
+        objects
+    );
 
     let meta_key = format!("events/{}/meta.json", session_id);
     assert!(
@@ -346,7 +342,8 @@ async fn test_meta_json_content_in_minio() {
 
     let tmp = tempfile::tempdir().unwrap();
     let upstream = start_mock_upstream().await;
-    let (proxy_addr, cancel) = start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
+    let (proxy_addr, cancel) =
+        start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
 
     let client = Client::new();
 
@@ -400,8 +397,18 @@ async fn test_meta_json_content_in_minio() {
     assert!(meta["started_at"].as_u64().unwrap() > 0);
     assert!(meta["stopped_at"].as_u64().unwrap() > 0);
     assert!(meta["written_files"].as_u64().unwrap() >= 1);
-    assert!(meta["local_output_prefix"].as_str().unwrap().contains(&session_id));
-    assert!(meta["remote_output_prefix"].as_str().unwrap().contains(&session_id));
+    assert!(
+        meta["local_output_prefix"]
+            .as_str()
+            .unwrap()
+            .contains(&session_id)
+    );
+    assert!(
+        meta["remote_output_prefix"]
+            .as_str()
+            .unwrap()
+            .contains(&session_id)
+    );
 }
 
 /// meta.json must be the last object uploaded — all JSONL files that were
@@ -415,7 +422,8 @@ async fn test_meta_json_uploaded_after_jsonl_files() {
 
     let tmp = tempfile::tempdir().unwrap();
     let upstream = start_mock_upstream().await;
-    let (proxy_addr, cancel) = start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
+    let (proxy_addr, cancel) =
+        start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg.clone())).await;
 
     let client = Client::new();
 
@@ -481,8 +489,7 @@ async fn test_upload_failure_local_files_preserved() {
 
     let tmp = tempfile::tempdir().unwrap();
     let upstream = start_mock_upstream().await;
-    let (proxy_addr, cancel) =
-        start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg)).await;
+    let (proxy_addr, cancel) = start_proxy(upstream, tmp.path().to_path_buf(), Some(cfg)).await;
 
     let client = Client::new();
 
@@ -506,7 +513,11 @@ async fn test_upload_failure_local_files_preserved() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 200, "request forwarding must succeed regardless of S3 state");
+    assert_eq!(
+        resp.status(),
+        200,
+        "request forwarding must succeed regardless of S3 state"
+    );
 
     let stop_resp = client
         .post(format!("http://{}/control/tracing/stop", proxy_addr))
@@ -523,12 +534,15 @@ async fn test_upload_failure_local_files_preserved() {
     let session_dir = tmp.path().join("events").join(&session_id);
     assert!(session_dir.exists(), "session directory must exist locally");
 
-    let local_files: Vec<_> = std::fs::read_dir(&session_dir)
-        .unwrap()
-        .flatten()
-        .collect();
-    assert!(!local_files.is_empty(), "local files must be preserved after upload failure");
+    let local_files: Vec<_> = std::fs::read_dir(&session_dir).unwrap().flatten().collect();
+    assert!(
+        !local_files.is_empty(),
+        "local files must be preserved after upload failure"
+    );
 
     let meta_path = session_dir.join("meta.json");
-    assert!(meta_path.exists(), "meta.json must be written locally even if upload fails");
+    assert!(
+        meta_path.exists(),
+        "meta.json must be written locally even if upload fails"
+    );
 }
