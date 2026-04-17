@@ -9,6 +9,35 @@ pub enum BackendKind {
     Pinecone,
 }
 
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SinkMode {
+    #[default]
+    LocalOnly,
+    LocalPlusS3,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct S3Config {
+    pub bucket: String,
+    #[serde(default)]
+    pub prefix: String,
+    pub endpoint: String,
+    pub region: String,
+    pub access_key: String,
+    pub secret_key: String,
+    #[serde(default)]
+    pub force_path_style: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SinkConfig {
+    #[serde(default)]
+    pub mode: SinkMode,
+    pub local_output_root: PathBuf,
+    pub s3: Option<S3Config>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
     #[serde(default = "default_listen_addr")]
@@ -19,7 +48,7 @@ pub struct Config {
     pub sampling_rate: f64,
     #[serde(default = "default_queue_capacity")]
     pub queue_capacity: usize,
-    pub output_dir: PathBuf,
+    pub sink: SinkConfig,
     #[serde(default = "default_rotation_max_bytes")]
     pub rotation_max_bytes: u64,
     #[serde(default = "default_flush_interval_ms")]
@@ -78,6 +107,9 @@ impl Config {
         }
         if self.upstream_base_url.is_empty() {
             return Err("upstream_base_url must not be empty".into());
+        }
+        if self.sink.mode == SinkMode::LocalPlusS3 && self.sink.s3.is_none() {
+            return Err("sink.s3 config is required when mode is local_plus_s3".into());
         }
         Ok(())
     }

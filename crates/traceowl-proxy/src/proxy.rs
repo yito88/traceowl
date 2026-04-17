@@ -9,6 +9,7 @@ use reqwest::Client;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::time::Instant;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::backend::BackendHandler;
@@ -29,12 +30,14 @@ pub struct AppState {
     pub tracing_gate: Arc<TracingGate>,
     /// Session metadata: only read/written by control handlers.
     pub tracing_session: Arc<tokio::sync::Mutex<TracingSession>>,
-    /// Channel to send commands (Rotate, Flush) to the writer task.
+    /// Channel to send commands (Rotate, Flush, Close) to the writer task.
     pub sink_ctl: SinkControlSender,
     /// Last flush timestamp (ms); updated by the writer task after each flush.
     pub last_flush_at: Arc<AtomicU64>,
     /// Set to false by the writer task on exit.
     pub writer_alive: Arc<AtomicBool>,
+    /// Process-level cancellation token; used to spawn per-session uploader tasks.
+    pub cancel_token: CancellationToken,
 }
 
 pub async fn forward_handler(

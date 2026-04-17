@@ -16,8 +16,28 @@ sampling_rate = 0.1
 # Maximum number of events in the queue before dropping
 queue_capacity = 8192
 
-# Directory for JSONL event files
-output_dir = "./events"
+# Tracing is OFF by default.
+# Use POST /control/tracing/start to enable it for a session.
+
+# Sink: local storage and optional S3-compatible upload
+[sink]
+# "local_only"    — write to local_output_root only (default)
+# "local_plus_s3" — write locally and upload closed files to S3 in background
+mode = "local_only"
+
+# Root directory for event output.
+# Sessions are written to: <local_output_root>/events/<session_id>/
+local_output_root = "./data"
+
+# S3-compatible storage configuration (required when mode = "local_plus_s3")
+#[sink.s3]
+#bucket = "traceowl-events"
+#prefix = ""                        # optional key prefix (e.g. "myapp/")
+#endpoint = "http://minio:9000"     # custom endpoint for MinIO, Ceph, etc.
+#region = "us-east-1"
+#access_key = "minioadmin"
+#secret_key = "minioadmin"
+#force_path_style = true            # required for MinIO and most S3-compatible stores
 
 # Rotate event file when it reaches this size in bytes (default: 50MB)
 rotation_max_bytes = 52428800

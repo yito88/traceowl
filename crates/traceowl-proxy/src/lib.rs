@@ -8,3 +8,4 @@ pub mod queue;
 pub mod sampling;
 pub mod shutdown;
 pub mod sink;
+pub mod uploader;

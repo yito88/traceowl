@@ -15,7 +15,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use traceowl_proxy::backend;
-use traceowl_proxy::config::{BackendKind, Config};
+use traceowl_proxy::config::{BackendKind, Config, SinkConfig, SinkMode};
 use traceowl_proxy::control::{TracingGate, TracingSession};
 use traceowl_proxy::proxy::AppState;
 use traceowl_proxy::queue::EventQueue;
@@ -61,7 +61,11 @@ async fn start_proxy(
         upstream_base_url: format!("http://{}", upstream_addr),
         sampling_rate: 1.0,
         queue_capacity: 8192,
-        output_dir,
+        sink: SinkConfig {
+            mode: SinkMode::LocalOnly,
+            local_output_root: output_dir,
+            s3: None,
+        },
         rotation_max_bytes: 50 * 1024 * 1024,
         flush_interval_ms: 50,
         flush_max_events: 1000,
@@ -69,7 +73,7 @@ async fn start_proxy(
         include_query_representation: true,
     };
 
-    std::fs::create_dir_all(&config.output_dir).unwrap();
+    std::fs::create_dir_all(&config.sink.local_output_root).unwrap();
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
     let (event_queue, rx) = EventQueue::new(config.queue_capacity);
@@ -106,6 +110,7 @@ async fn start_proxy(
         sink_ctl: sink_ctl_tx,
         last_flush_at,
         writer_alive,
+        cancel_token: cancel_token.clone(),
     };
 
     let app = Router::new()
@@ -138,13 +143,21 @@ async fn start_proxy(
     (addr, cancel_token)
 }
 
-/// Read all JSONL events from the output directory.
+/// Read all JSONL events from the output directory (recursively).
 fn read_events(output_dir: &PathBuf) -> Vec<Value> {
     let mut events = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(output_dir) {
+    read_events_recursive(output_dir, &mut events);
+    events
+}
+
+fn read_events_recursive(dir: &PathBuf, events: &mut Vec<Value>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
-            if entry.path().extension().is_some_and(|ext| ext == "jsonl") {
-                let content = std::fs::read_to_string(entry.path()).unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                read_events_recursive(&path, events);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                let content = std::fs::read_to_string(&path).unwrap();
                 for line in content.lines() {
                     if !line.trim().is_empty() {
                         events.push(serde_json::from_str(line).unwrap());
@@ -153,7 +166,6 @@ fn read_events(output_dir: &PathBuf) -> Vec<Value> {
             }
         }
     }
-    events
 }
 
 fn qdrant_success_response() -> Value {
@@ -476,7 +488,11 @@ async fn test_flush_on_stop() {
         upstream_base_url: format!("http://{}", upstream_addr),
         sampling_rate: 1.0,
         queue_capacity: 8192,
-        output_dir: tmp.path().to_path_buf(),
+        sink: SinkConfig {
+            mode: SinkMode::LocalOnly,
+            local_output_root: tmp.path().to_path_buf(),
+            s3: None,
+        },
         rotation_max_bytes: 50 * 1024 * 1024,
         flush_interval_ms: 60_000, // Very long — won't auto-flush
         flush_max_events: 1000,
@@ -484,7 +500,7 @@ async fn test_flush_on_stop() {
         include_query_representation: true,
     };
 
-    std::fs::create_dir_all(&config.output_dir).unwrap();
+    std::fs::create_dir_all(&config.sink.local_output_root).unwrap();
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
     let (event_queue, rx) = EventQueue::new(config.queue_capacity);
@@ -521,6 +537,7 @@ async fn test_flush_on_stop() {
         sink_ctl: sink_ctl_tx,
         last_flush_at,
         writer_alive,
+        cancel_token: cancel_token.clone(),
     };
 
     let app = Router::new()

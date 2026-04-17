@@ -8,6 +8,7 @@ mod queue;
 mod sampling;
 mod shutdown;
 mod sink;
+mod uploader;
 
 use axum::Router;
 use axum::routing::{get, post};
@@ -35,9 +36,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "config.toml".to_string());
 
     let config = Config::load(&config_path)?;
-    tracing::info!(listen = %config.listen_addr, upstream = %config.upstream_base_url, backend = ?config.backend, "starting traceowl-proxy");
+    tracing::info!(
+        listen = %config.listen_addr,
+        upstream = %config.upstream_base_url,
+        backend = ?config.backend,
+        sink_mode = ?config.sink.mode,
+        "starting traceowl-proxy"
+    );
 
-    std::fs::create_dir_all(&config.output_dir)?;
+    std::fs::create_dir_all(&config.sink.local_output_root)?;
 
     let cancel_token = tokio_util::sync::CancellationToken::new();
 
@@ -78,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sink_ctl: sink_ctl_tx,
         last_flush_at,
         writer_alive,
+        cancel_token: cancel_token.clone(),
     };
 
     let app = Router::new()

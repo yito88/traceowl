@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 traceowl-schema = { path = "../traceowl-schema" }
+aws-sdk-s3 = "1"
 axum = "0.8"
 bytes = "1"
 http = "1"
