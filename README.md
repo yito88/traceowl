@@ -99,7 +99,7 @@ cargo build --release -p traceowl-proxy -p traceowl-diff
 ### Build Docker image
 
 ```bash
-docker build -t traceowl-proxy:latest .
+docker build -f crates/traceowl-proxy/Dockerfile -t traceowl-proxy .
 ```
 
 ---

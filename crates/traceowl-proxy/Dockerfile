@@ -4,7 +4,8 @@ FROM rust:1.94-bookworm AS builder
 
 WORKDIR /src
 
-COPY . .
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 
 RUN cargo build --release -p traceowl-proxy
 
