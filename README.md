@@ -28,14 +28,6 @@ A report showing what changed between two retrieval runs.
 
 ---
 
-## Documentation
-
-- [Architecture](docs/architecture.md) — how the components fit together
-- [Installation](docs/install.md) — build from source or Docker
-- [Operation](docs/operate.md) — configuration reference and full API walkthrough
-
----
-
 ## Quickstart
 
 ### Prerequisites
@@ -43,6 +35,17 @@ A report showing what changed between two retrieval runs.
 - Your client application configured to use a VectorDB (e.g. Qdrant, Pinecone)
 - A running VectorDB (Qdrant or Pinecone-compatible)
 - Docker (optional, for running TraceOwl components)
+
+### Install
+- Pull the TraceOwl Proxy/Analyzer image
+
+```bash
+docker pull ghcr.io/yito88/traceowl-proxy:v1.0.0
+
+docker pull ghcr.io/yito88/traceowl-analyzer:v1.0.0
+```
+
+- Download the TraceOwl Diff binary from the release page (optional, for diffing event files)
 
 ### Step 1 - Start the proxy
 
@@ -142,3 +145,11 @@ docker run --rm \
   --output-html /data/report.html \
   --summary-json /data/summary.json
 ```
+
+---
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — how the components fit together
+- [Installation](docs/install.md) — build from source or Docker
+- [Operation](docs/operate.md) — configuration reference and full API walkthrough
