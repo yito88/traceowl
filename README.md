@@ -40,12 +40,15 @@ A report showing what changed between two retrieval runs.
 - Pull the TraceOwl Proxy/Analyzer image
 
 ```bash
+# Proxy (open-source)
 docker pull ghcr.io/yito88/traceowl-proxy:v1.0.0
 
+# Analyzer (license required)
 docker pull ghcr.io/yito88/traceowl-analyzer:v1.0.0
 ```
 
 - Download the TraceOwl Diff binary from the release page (optional, for diffing event files)
+- The analyzer requires a license to run. Trial access is available - contact contact@traceowl.org
 
 ### Step 1 - Start the proxy
 
@@ -138,7 +141,9 @@ traceowl-diff \
 ```bash
 docker run --rm \
   -v ./data:/data \
-  traceowl-analyzer \  # no config needed for local files
+  -v ./license.json:/license.json \
+  traceowl-analyzer \
+  --license /license.json \
   analyze \
   --baseline-dir /data/<baseline-session-id> \
   --candidate-dir /data/<candidate-session-id> \
@@ -153,3 +158,7 @@ docker run --rm \
 - [Architecture](docs/architecture.md) — how the components fit together
 - [Installation](docs/install.md) — build from source or Docker
 - [Operation](docs/operate.md) — configuration reference and full API walkthrough
+
+## Contact
+
+Questions, feedback, or trial requests: contact@traceowl.org
