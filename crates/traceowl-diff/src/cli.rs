@@ -5,6 +5,7 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(
     name = "traceowl-diff",
+    version,
     about = "Compare baseline vs candidate retrieval events"
 )]
 pub struct Args {

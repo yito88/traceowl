@@ -31,9 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.toml".to_string());
+    let arg = std::env::args().nth(1);
+    if matches!(arg.as_deref(), Some("--version") | Some("-V")) {
+        println!("traceowl-proxy {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    let config_path = arg.unwrap_or_else(|| "config.toml".to_string());
 
     let config = Config::load(&config_path)?;
     tracing::info!(
