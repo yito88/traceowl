@@ -28,6 +28,14 @@ A report showing what changed between two retrieval runs.
 
 ---
 
+## Documentation
+
+- [Architecture](docs/architecture.md) — how the components fit together
+- [Installation](docs/install.md) — build from source or Docker
+- [Operation](docs/operate.md) — configuration reference and full API walkthrough
+
+---
+
 ## Quickstart
 
 ### Prerequisites

@@ -17,7 +17,10 @@ backend = "qdrant"                        # "qdrant" or "pinecone"
 listen_addr = "0.0.0.0:6333"             # port your clients connect to
 upstream_base_url = "http://localhost:6334"  # your real VectorDB
 sampling_rate = 0.1                       # fraction of requests to record
-output_dir = "./events"                   # where JSONL files are written
+
+[sink]
+mode = "local_only"                       # "local_only" or "local_plus_s3"
+local_output_root = "./data"              # where JSONL files are written
 ```
 
 **2a. Run the binary**
@@ -32,7 +35,7 @@ output_dir = "./events"                   # where JSONL files are written
 docker run -d \
   -p 6333:6333 \
   -v $(pwd)/config.toml:/config.toml \
-  -v $(pwd)/events:/events \
+  -v $(pwd)/data:/data \
   traceowl-proxy:latest /config.toml
 ```
 
@@ -56,7 +59,7 @@ curl -s -X POST http://localhost:6333/control/tracing/stop | jq .
 ```
 
 This flushes any buffered events to disk before returning. Event files appear
-in `output_dir` as `events-<session-id>-<seq>.jsonl`.
+under `local_output_root` as `events/<session-id>/<seq>.jsonl`.
 
 **Check status at any time**
 
@@ -89,9 +92,9 @@ TraceOwl Analyzer can work as a CLI tool(Analyze mode) or as a web server(Server
 
 ### Configuration
 
-If you use the analyzer with local JSONL files, no config is needed. Just point it at the files:
+If you use the analyzer with local JSONL files, no config is needed. Just point it at the files.
 
-```bash
+For S3 inputs, create a config file:
 
 ```toml
 [server]
