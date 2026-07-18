@@ -41,14 +41,14 @@ A report showing what changed between two retrieval runs.
 
 ```bash
 # Proxy (open-source)
-docker pull ghcr.io/yito88/traceowl-proxy:v1.0.0
+docker pull ghcr.io/igel-data/traceowl-proxy:v1.0.1
 
 # Analyzer (license required)
-docker pull ghcr.io/yito88/traceowl-analyzer:v1.0.0
+docker pull ghcr.io/igel-data/traceowl-analyzer:v1.0.1
 ```
 
 - Download the TraceOwl Diff binary from the release page (optional, for diffing event files)
-- The analyzer requires a license to run. Trial access is available - contact contact@traceowl.org
+- The analyzer requires a license to run. Trial access is available - contact contact@igel-data.com
 
 ### Step 1 - Start the proxy
 
@@ -161,4 +161,4 @@ docker run --rm \
 
 ## Contact
 
-Questions, feedback, or trial requests: contact@traceowl.org
+Questions, feedback, or trial requests: contact@igel-data.com
